@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Users, Edit2, Check, X } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import type { MemberRelation } from '../../types';

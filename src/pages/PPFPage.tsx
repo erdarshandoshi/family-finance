@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { PiggyBank, Save, RefreshCw } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, generateId } from '../utils/helpers';

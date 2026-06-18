@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Briefcase, Save, RefreshCw, Info } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, generateId } from '../utils/helpers';

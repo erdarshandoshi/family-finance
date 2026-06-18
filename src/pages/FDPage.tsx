@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Plus, Edit2, Trash2, Landmark, AlertTriangle, Clock, CheckCircle, Search, X } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatDate, isMatured, isMaturityThisMonth, daysUntilMaturity } from '../utils/helpers';

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Plus, Edit2, Trash2, BarChart3, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatDate, getPLColor } from '../utils/helpers';
@@ -91,7 +91,7 @@ export default function MFPage() {
                   {pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Pie>
                 <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
-                  formatter={(v: number) => formatCurrency(v)} />
+                  formatter={(v: unknown) => formatCurrency(v as number)} />
               </PieChart>
             </ResponsiveContainer>
           </div>
@@ -103,7 +103,7 @@ export default function MFPage() {
                 <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false}
                   tickFormatter={v => `₹${(v / 1000).toFixed(0)}k`} />
                 <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
-                  formatter={(v: number) => formatCurrency(v)} />
+                  formatter={(v: unknown) => formatCurrency(v as number)} />
                 <Bar dataKey="pl" radius={[4, 4, 0, 0]} name="P&L">
                   {barData.map((d, i) => <Cell key={i} fill={d.pl >= 0 ? '#10b981' : '#ef4444'} />)}
                 </Bar>

@@ -1,4 +1,3 @@
-import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Landmark, TrendingUp, BarChart3, PiggyBank, Briefcase,
@@ -210,7 +209,7 @@ export default function Dashboard() {
                 <h3 className="text-white font-semibold text-sm">Per-Member Breakdown</h3>
               </div>
               <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${data.members.length}, 1fr)` }}>
-                {memberBreakdown.map((mb, i) => (
+                {memberBreakdown.map((mb) => (
                   <div key={mb.name} className="bg-slate-700/40 rounded-xl p-4 border border-slate-600/40">
                     <div className="flex items-center gap-2 mb-3">
                       <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: mb.color }} />
@@ -233,19 +232,22 @@ export default function Dashboard() {
 
               {/* Stacked bar comparison */}
               <div className="mt-5">
-                <ResponsiveContainer width="100%" height={160}>
-                  <BarChart data={[{ name: 'Portfolio' }]} layout="vertical" barSize={32}>
+                <ResponsiveContainer width="100%" height={80}>
+                  <BarChart
+                    data={[Object.fromEntries([['name', 'Family'], ...memberBreakdown.map(mb => [mb.name, mb.total])])]}
+                    layout="vertical"
+                    barSize={28}
+                  >
                     <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false}
-                      tickFormatter={v => `₹${(v / 100000).toFixed(0)}L`} />
+                      tickFormatter={v => `₹${((v as number) / 100000).toFixed(0)}L`} />
                     <YAxis type="category" dataKey="name" hide />
                     <Tooltip
                       contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
-                      formatter={(v: number) => formatCurrency(v)}
+                      formatter={(v: unknown) => formatCurrency(v as number)}
                     />
                     <Legend wrapperStyle={{ paddingTop: 8, fontSize: 12, color: '#94a3b8' }} />
                     {memberBreakdown.map(mb => (
-                      <Bar key={mb.name} dataKey={mb.name} stackId="a" fill={mb.color} radius={[0, 0, 0, 0]}
-                        data={[{ [mb.name]: mb.total }]} name={mb.name} />
+                      <Bar key={mb.name} dataKey={mb.name} stackId="a" fill={mb.color} name={mb.name} />
                     ))}
                   </BarChart>
                 </ResponsiveContainer>
@@ -268,7 +270,7 @@ export default function Dashboard() {
                     </Pie>
                     <Tooltip
                       contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
-                      formatter={(v: number) => formatCurrency(v)}
+                      formatter={(v: unknown) => formatCurrency(v as number)}
                     />
                   </PieChart>
                 </ResponsiveContainer>
@@ -296,7 +298,7 @@ export default function Dashboard() {
                     tickFormatter={v => `₹${(v / 100000).toFixed(0)}L`} />
                   <Tooltip
                     contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
-                    formatter={(v: number) => formatCurrency(v)}
+                    formatter={(v: unknown) => formatCurrency(v as number)}
                   />
                   <Bar dataKey="value" radius={[6, 6, 0, 0]}>
                     {categoryBar.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
