@@ -1,6 +1,9 @@
+import { GoogleOAuthProvider } from '@react-oauth/google';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AppProvider } from './context/AppContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import Layout from './components/Layout/Layout';
+import LoginPage from './components/Login/LoginPage';
 import Dashboard from './pages/Dashboard';
 import FDPage from './pages/FDPage';
 import StocksPage from './pages/StocksPage';
@@ -8,7 +11,13 @@ import MFPage from './pages/MFPage';
 import PPFPage from './pages/PPFPage';
 import PFPage from './pages/PFPage';
 
-export default function App() {
+const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string;
+
+function AuthGate() {
+  const { user } = useAuth();
+
+  if (!user) return <LoginPage />;
+
   return (
     <AppProvider>
       <BrowserRouter>
@@ -24,5 +33,15 @@ export default function App() {
         </Routes>
       </BrowserRouter>
     </AppProvider>
+  );
+}
+
+export default function App() {
+  return (
+    <GoogleOAuthProvider clientId={CLIENT_ID}>
+      <AuthProvider>
+        <AuthGate />
+      </AuthProvider>
+    </GoogleOAuthProvider>
   );
 }

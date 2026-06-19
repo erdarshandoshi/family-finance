@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Users, Edit2, Check, X } from 'lucide-react';
+import { Users, Edit2, Check, X, LogOut } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { useAuth } from '../../context/AuthContext';
 import type { MemberRelation } from '../../types';
 
 const RELATION_DOT: Record<MemberRelation, string> = {
@@ -19,6 +20,7 @@ export const ALL_MEMBERS_ID = 'all';
 
 export default function Header() {
   const { data, dispatch, activeMemberId, setActiveMemberId } = useApp();
+  const { user, logout } = useAuth();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
 
@@ -38,11 +40,13 @@ export default function Header() {
   return (
     <header className="bg-slate-900 border-b border-slate-800 px-6 py-3">
       <div className="flex items-center gap-3">
+        {/* Viewing-as label */}
         <div className="flex items-center gap-2 mr-auto">
           <Users size={15} className="text-slate-500" />
           <span className="text-slate-500 text-sm font-medium">Viewing as:</span>
         </div>
 
+        {/* Member switcher */}
         <div className="flex items-center gap-1.5">
           {/* All Family pill */}
           <button
@@ -110,6 +114,29 @@ export default function Header() {
               )}
             </div>
           ))}
+        </div>
+
+        {/* User avatar + logout */}
+        <span className="w-px h-5 bg-slate-700 mx-1" />
+        <div className="flex items-center gap-2">
+          {user?.picture && (
+            <img
+              src={user.picture}
+              alt={user.name}
+              className="w-7 h-7 rounded-full border border-slate-600"
+              title={`${user.name} (${user.email})`}
+            />
+          )}
+          <span className="text-slate-400 text-xs hidden lg:block max-w-32 truncate" title={user?.email}>
+            {user?.name}
+          </span>
+          <button
+            onClick={logout}
+            title="Sign out"
+            className="p-1.5 text-slate-600 hover:text-red-400 hover:bg-slate-800 rounded-lg transition-colors"
+          >
+            <LogOut size={14} />
+          </button>
         </div>
       </div>
     </header>
