@@ -24,6 +24,13 @@ const MEMBER_TAB_DEFAULTS: Record<string, MemberRelation> = {
   'darshandoshi1990@gmail.com':   'kid',
 };
 
+// Resolve the member tab a given user should land on by default.
+function resolveDefaultMemberId(members: FamilyMember[], email: string): string {
+  const rel = MEMBER_TAB_DEFAULTS[email];
+  const target = rel ? members.find(m => m.relation === rel) : undefined;
+  return target?.id ?? members[0]?.id ?? '1';
+}
+
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 
 const defaultMembers: FamilyMember[] = [
@@ -158,6 +165,8 @@ interface AppContextValue {
   dispatch: React.Dispatch<Action>;
   activeMemberId: string;
   setActiveMemberId: (id: string) => void;
+  /** Member tab the logged-in user should default to (per MEMBER_TAB_DEFAULTS). */
+  defaultMemberId: string;
   dbLoading: boolean;
   isReadOnly: boolean;
 }
@@ -209,13 +218,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: 'SET_DATA', payload: best });
 
         // Set default member tab based on logged-in email
-        const defaultRelation = MEMBER_TAB_DEFAULTS[email];
-        if (defaultRelation) {
-          const target = best.members.find(m => m.relation === defaultRelation);
-          setActiveMemberId(target?.id ?? best.members[0]?.id ?? '1');
-        } else {
-          setActiveMemberId(best.members[0]?.id ?? '1');
-        }
+        setActiveMemberId(resolveDefaultMemberId(best.members, email));
 
         lastSavedCount.current = countInvestments(best);
       }
@@ -271,6 +274,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     <AppContext.Provider value={{
       data, dispatch,
       activeMemberId, setActiveMemberId,
+      defaultMemberId: resolveDefaultMemberId(data.members, email),
       dbLoading,
       isReadOnly: false,   // all family members have full read+write
     }}>

@@ -23,7 +23,7 @@ async function fetchPrice(symbol: string): Promise<number | null> {
 
 export default function StocksPage() {
   const navigate = useNavigate();
-  const { data, dispatch, activeMemberId, setActiveMemberId } = useApp();
+  const { data, dispatch, activeMemberId } = useApp();
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingGroup, setEditingGroup] = useState<StockGroup | null>(null);
   const [pickingDematForGroup, setPickingDematForGroup] = useState<StockGroup | null>(null);
@@ -33,13 +33,6 @@ export default function StocksPage() {
   const isAll = activeMemberId === ALL_MEMBERS_ID;
   const member = data.members.find(m => m.id === activeMemberId);
   const [dematFilter, setDematFilter] = useState<string>('all');
-
-  // Darshan and Jainil don't hold any stocks yet, so default this page to Niyati's tab.
-  useEffect(() => {
-    const niyati = data.members.find(m => m.name.trim().toLowerCase() === 'niyati');
-    if (niyati) setActiveMemberId(niyati.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const stocks = data.stocks.filter(s => (isAll ? true : s.memberId === activeMemberId));
   const filteredStocks = dematFilter === 'all'
