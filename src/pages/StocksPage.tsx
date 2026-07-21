@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Plus, Edit2, Trash2, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatDate, getPLColor } from '../utils/helpers';
@@ -12,9 +12,16 @@ import {
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#f97316', '#ec4899'];
 
 export default function StocksPage() {
-  const { data, dispatch, activeMemberId } = useApp();
+  const { data, dispatch, activeMemberId, setActiveMemberId } = useApp();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Stock | null>(null);
+
+  // Darshan and Jainil don't hold any stocks yet, so default this page to Niyati's tab.
+  useEffect(() => {
+    const niyati = data.members.find(m => m.name.trim().toLowerCase() === 'niyati');
+    if (niyati) setActiveMemberId(niyati.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const stocks = data.stocks.filter(s => s.memberId === activeMemberId);
   const member = data.members.find(m => m.id === activeMemberId);
