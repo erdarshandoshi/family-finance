@@ -1,18 +1,29 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Briefcase, Save, RefreshCw, Info } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, generateId } from '../utils/helpers';
+import { ALL_MEMBERS_ID } from '../components/Layout/Header';
 
 const inputClass =
-  'w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-sm outline-none focus:border-indigo-500 transition-colors placeholder-slate-500';
-const labelClass = 'block text-slate-400 text-xs font-medium mb-1.5 uppercase tracking-wide';
+  'w-full bg-surface border border-edge rounded-xl px-3 py-2.5 text-content text-sm outline-none focus:border-indigo-500 transition-colors placeholder-faint';
+const labelClass = 'block text-muted text-xs font-medium mb-1.5 uppercase tracking-wide';
 
 const PF_RATE = 8.25;
 
 export default function PFPage() {
-  const { data, dispatch, activeMemberId } = useApp();
-  const member = data.members.find(m => m.id === activeMemberId);
-  const entry = data.pf.find(p => p.memberId === activeMemberId);
+  const { data, dispatch, activeMemberId, dbLoading } = useApp();
+
+  const defaultMemberId = activeMemberId === ALL_MEMBERS_ID
+    ? (data.members[0]?.id ?? '1')
+    : activeMemberId;
+  const [selectedMemberId, setSelectedMemberId] = useState(defaultMemberId);
+
+  // Sync with header member switcher (skip 'all')
+  useEffect(() => {
+    if (activeMemberId !== ALL_MEMBERS_ID) setSelectedMemberId(activeMemberId);
+  }, [activeMemberId]);
+
+  const entry = data.pf.find(p => p.memberId === selectedMemberId);
 
   const [form, setForm] = useState({
     currentAmount: entry?.currentAmount ?? 0,
@@ -23,12 +34,27 @@ export default function PFPage() {
   });
   const [saved, setSaved] = useState(false);
 
+  // Reload form when member changes or Firestore data first loads
+  useEffect(() => {
+    if (dbLoading) return;
+    const e = data.pf.find(p => p.memberId === selectedMemberId);
+    setForm({
+      currentAmount: e?.currentAmount ?? 0,
+      employeeContribution: e?.employeeContribution ?? 0,
+      employerContribution: e?.employerContribution ?? 0,
+      uanNumber: e?.uanNumber ?? '',
+      lastUpdated: e?.lastUpdated ?? new Date().toISOString().split('T')[0],
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMemberId, dbLoading]);
+
   const handleSave = () => {
+    const currentEntry = data.pf.find(p => p.memberId === selectedMemberId);
     dispatch({
       type: 'UPSERT_PF',
       payload: {
-        id: entry?.id ?? generateId(),
-        memberId: activeMemberId,
+        id: currentEntry?.id ?? generateId(),
+        memberId: selectedMemberId,
         ...form,
         lastUpdated: new Date().toISOString().split('T')[0],
       },
@@ -39,6 +65,7 @@ export default function PFPage() {
 
   const totalMonthly = form.employeeContribution + form.employerContribution;
   const yearlyAccrual = totalMonthly * 12;
+  const selectedMember = data.members.find(m => m.id === selectedMemberId);
 
   const projections = [1, 5, 10, 20].map(years => {
     let amount = form.currentAmount;
@@ -52,16 +79,33 @@ export default function PFPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-white">Provident Fund (EPF)</h2>
-          <p className="text-slate-400 text-sm mt-1">{member?.name} — Current Rate: {PF_RATE}% p.a.</p>
+          <h2 className="text-2xl font-bold text-content">Provident Fund (EPF)</h2>
+          <p className="text-muted text-sm mt-1">{selectedMember?.name} — Current Rate: {PF_RATE}% p.a.</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
-        <div className="bg-slate-800/60 border border-slate-700/50 rounded-2xl p-6 space-y-4">
+      {/* Member tabs */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {data.members.map(m => (
+          <button
+            key={m.id}
+            onClick={() => setSelectedMemberId(m.id)}
+            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+              selectedMemberId === m.id
+                ? 'bg-indigo-600 text-white'
+                : 'bg-surface text-muted hover:text-content hover:bg-surface3'
+            }`}
+          >
+            {m.name}
+          </button>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-surface border border-edge rounded-2xl shadow-card p-6 space-y-4">
           <div className="flex items-center gap-2 mb-2">
-            <Briefcase size={20} className="text-indigo-400" />
-            <h3 className="text-white font-semibold">Update PF Details</h3>
+            <Briefcase size={20} className="text-accent" />
+            <h3 className="text-content font-semibold">Update PF Details — {selectedMember?.name}</h3>
           </div>
 
           <div>
@@ -100,57 +144,57 @@ export default function PFPage() {
         </div>
 
         <div className="space-y-4">
-          <div className="bg-slate-800/60 border border-slate-700/50 rounded-2xl p-5">
-            <h3 className="text-white font-semibold mb-4">Contribution Summary</h3>
+          <div className="bg-surface border border-edge rounded-2xl shadow-card p-5">
+            <h3 className="text-content font-semibold mb-4">Contribution Summary</h3>
             <div className="space-y-3">
               <div className="flex justify-between">
-                <span className="text-slate-400 text-sm">Current Balance</span>
-                <span className="text-white font-bold text-lg">{formatCurrency(form.currentAmount)}</span>
+                <span className="text-muted text-sm">Current Balance</span>
+                <span className="text-content font-bold text-lg">{formatCurrency(form.currentAmount)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400 text-sm">Employee / Month</span>
+                <span className="text-muted text-sm">Employee / Month</span>
                 <span className="text-blue-400 font-semibold">{formatCurrency(form.employeeContribution)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400 text-sm">Employer / Month</span>
+                <span className="text-muted text-sm">Employer / Month</span>
                 <span className="text-purple-400 font-semibold">{formatCurrency(form.employerContribution)}</span>
               </div>
-              <div className="h-px bg-slate-700" />
+              <div className="h-px bg-surface3" />
               <div className="flex justify-between">
-                <span className="text-slate-400 text-sm">Total / Month</span>
-                <span className="text-emerald-400 font-bold">{formatCurrency(totalMonthly)}</span>
+                <span className="text-muted text-sm">Total / Month</span>
+                <span className="text-success font-bold">{formatCurrency(totalMonthly)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400 text-sm">Total / Year</span>
-                <span className="text-emerald-400 font-semibold">{formatCurrency(yearlyAccrual)}</span>
+                <span className="text-muted text-sm">Total / Year</span>
+                <span className="text-success font-semibold">{formatCurrency(yearlyAccrual)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400 text-sm">Interest Rate</span>
-                <span className="text-amber-400 font-semibold">{PF_RATE}% p.a.</span>
+                <span className="text-muted text-sm">Interest Rate</span>
+                <span className="text-warn font-semibold">{PF_RATE}% p.a.</span>
               </div>
             </div>
           </div>
 
-          <div className="bg-slate-800/60 border border-slate-700/50 rounded-2xl p-5">
-            <h3 className="text-white font-semibold mb-4">Retirement Projections</h3>
+          <div className="bg-surface border border-edge rounded-2xl shadow-card p-5">
+            <h3 className="text-content font-semibold mb-4">Retirement Projections</h3>
             <div className="space-y-2">
               {projections.map(({ years, amount }) => (
                 <div key={years} className="flex items-center gap-3">
-                  <span className="text-slate-400 text-sm w-16">{years} yr{years > 1 ? 's' : ''}</span>
-                  <div className="flex-1 bg-slate-700/50 rounded-full h-2">
+                  <span className="text-muted text-sm w-16">{years} yr{years > 1 ? 's' : ''}</span>
+                  <div className="flex-1 bg-surface2 rounded-full h-2">
                     <div className="bg-purple-500 h-2 rounded-full"
                       style={{ width: `${Math.min((amount / (projections[projections.length - 1].amount || 1)) * 100, 100)}%` }} />
                   </div>
-                  <span className="text-white font-semibold text-sm w-28 text-right">{formatCurrency(amount)}</span>
+                  <span className="text-content font-semibold text-sm w-28 text-right">{formatCurrency(amount)}</span>
                 </div>
               ))}
             </div>
-            <p className="text-slate-500 text-xs mt-3">Assuming {PF_RATE}% annual rate and current contributions.</p>
+            <p className="text-faint text-xs mt-3">Assuming {PF_RATE}% annual rate and current contributions.</p>
           </div>
 
           <div className="bg-blue-500/5 border border-blue-500/20 rounded-2xl p-4 flex gap-3">
             <Info size={16} className="text-blue-400 flex-shrink-0 mt-0.5" />
-            <p className="text-slate-400 text-xs leading-relaxed">
+            <p className="text-muted text-xs leading-relaxed">
               EPF is tax-exempt on contribution (80C), interest, and withdrawal after 5 years (EEE status).
               Employer contributes 8.33% to EPS and 3.67% to EPF from their 12% share.
             </p>
