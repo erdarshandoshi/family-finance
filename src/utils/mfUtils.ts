@@ -10,6 +10,7 @@ export interface MFGroup {
   folioNumber?: string;
   nominee?: string;
   remarks?: string;
+  guardianMemberId?: string;
   lots: MutualFund[];
   totalUnits: number;
   avgPurchaseNav: number;
@@ -40,6 +41,7 @@ export function groupMutualFunds(mfs: MutualFund[]): MFGroup[] {
         folioNumber: mf.folioNumber,
         nominee: mf.nominee,
         remarks: mf.remarks,
+        guardianMemberId: mf.guardianMemberId,
         lots: [],
         totalUnits: 0,
         avgPurchaseNav: 0,
@@ -57,6 +59,7 @@ export function groupMutualFunds(mfs: MutualFund[]): MFGroup[] {
     if (mf.folioNumber) group.folioNumber = mf.folioNumber;
     if (mf.nominee) group.nominee = mf.nominee;
     if (mf.remarks) group.remarks = mf.remarks;
+    if (mf.guardianMemberId) group.guardianMemberId = mf.guardianMemberId;
     if (mf.dateOfPurchase < group.earliestDate) group.earliestDate = mf.dateOfPurchase;
   }
 

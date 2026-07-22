@@ -21,6 +21,8 @@ import AccessControlPage from './pages/AccessControlPage';
 import NPSPage from './pages/NPSPage';
 import BabyJournalPage from './pages/BabyJournalPage';
 import PasswordVaultPage from './pages/PasswordVaultPage';
+import FolioRegistryPage from './pages/FolioRegistryPage';
+import ReviewInboxPage from './pages/ReviewInboxPage';
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string;
 
@@ -115,6 +117,8 @@ function AppRoutes() {
           <Route path="stocks" element={<StocksPage />} />
           <Route path="stocks/reports" element={<StocksReportPage />} />
           <Route path="mf" element={<MFPage />} />
+          <Route path="inbox" element={<ReviewInboxPage />} />
+          <Route path="folios" element={<FolioRegistryPage />} />
           <Route path="ppf" element={<PPFPage />} />
           <Route path="pf" element={<PFPage />} />
           <Route path="insurance" element={<InsurancePage />} />

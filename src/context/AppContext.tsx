@@ -5,7 +5,7 @@ import { useAuth } from './AuthContext';
 import type {
   AppData, FamilyMember, FD, Stock, MutualFund,
   PPFEntry, PFEntry, InsurancePolicy, PostInvestment, NPSEntry, JournalEntry, MemberRelation,
-  NetWorthSnapshot, Goals,
+  NetWorthSnapshot, Goals, FolioMapping, PendingTransaction,
 } from '../types';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -44,6 +44,7 @@ const initialData: AppData = {
   fds: [], stocks: [], mfs: [], ppf: [], pf: [],
   insurances: [], postInvestments: [], nps: [], journal: [],
   snapshots: [], goals: {},
+  folioMappings: [], pendingTransactions: [],
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -64,6 +65,8 @@ function normalize(data: AppData): AppData {
     journal:         Array.isArray(d['journal'])         ? data.journal         : [],
     snapshots:       Array.isArray(d['snapshots'])       ? data.snapshots       : [],
     goals:           (d['goals'] && typeof d['goals'] === 'object') ? data.goals : {},
+    folioMappings:      Array.isArray(d['folioMappings'])      ? data.folioMappings      : [],
+    pendingTransactions: Array.isArray(d['pendingTransactions']) ? data.pendingTransactions : [],
   };
 }
 
@@ -110,7 +113,9 @@ type Action =
   | { type: 'ADD_NPS'; payload: NPSEntry }               | { type: 'UPDATE_NPS'; payload: NPSEntry }               | { type: 'DELETE_NPS'; payload: string }
   | { type: 'ADD_JOURNAL'; payload: JournalEntry }       | { type: 'UPDATE_JOURNAL'; payload: JournalEntry }       | { type: 'DELETE_JOURNAL'; payload: string }
   | { type: 'ADD_SNAPSHOT'; payload: NetWorthSnapshot }
-  | { type: 'SET_GOALS'; payload: Goals };
+  | { type: 'SET_GOALS'; payload: Goals }
+  | { type: 'UPSERT_FOLIO'; payload: FolioMapping }     | { type: 'DELETE_FOLIO'; payload: string }
+  | { type: 'ADD_PENDING'; payload: PendingTransaction } | { type: 'DELETE_PENDING'; payload: string };
 
 function reducer(state: AppData, action: Action): AppData {
   switch (action.type) {
@@ -154,6 +159,17 @@ function reducer(state: AppData, action: Action): AppData {
       return { ...state, snapshots: [...rest, action.payload].sort((a, b) => a.date.localeCompare(b.date)) };
     }
     case 'SET_GOALS': return { ...state, goals: action.payload };
+    case 'UPSERT_FOLIO': {
+      const list = state.folioMappings ?? [];
+      const exists = list.some(f => f.id === action.payload.id);
+      return { ...state, folioMappings: exists ? list.map(f => f.id === action.payload.id ? action.payload : f) : [...list, action.payload] };
+    }
+    case 'DELETE_FOLIO':
+      return { ...state, folioMappings: (state.folioMappings ?? []).filter(f => f.id !== action.payload) };
+    case 'ADD_PENDING':
+      return { ...state, pendingTransactions: [...(state.pendingTransactions ?? []), action.payload] };
+    case 'DELETE_PENDING':
+      return { ...state, pendingTransactions: (state.pendingTransactions ?? []).filter(p => p.id !== action.payload) };
     default: return state;
   }
 }

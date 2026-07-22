@@ -3,7 +3,9 @@ import {
   LayoutDashboard, Landmark, TrendingUp, BarChart3,
   PiggyBank, Briefcase, IndianRupee, X, BarChart2,
   Shield, Package, Users, Building2, BookHeart, KeyRound,
+  Inbox, FolderKey,
 } from 'lucide-react';
+import { useApp } from '../../context/AppContext';
 
 const nav = [
   { to: '/',               label: 'Dashboard',        icon: LayoutDashboard },
@@ -11,6 +13,8 @@ const nav = [
   { to: '/stocks',         label: 'Stocks',            icon: TrendingUp },
   { to: '/stocks/reports', label: 'Stocks & Reports',  icon: BarChart2 },
   { to: '/mf',             label: 'Mutual Funds & SIP',icon: BarChart3 },
+  { to: '/inbox',          label: 'Review Inbox',      icon: Inbox },
+  { to: '/folios',         label: 'Folio Registry',    icon: FolderKey },
   { to: '/ppf',            label: 'PPF',               icon: PiggyBank },
   { to: '/pf',             label: 'Provident Fund',    icon: Briefcase },
   { to: '/insurance',      label: 'Insurance',         icon: Shield },
@@ -27,6 +31,9 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
+  const { data } = useApp();
+  const pendingCount = data.pendingTransactions?.length ?? 0;
+
   return (
     <aside className={`
       fixed lg:relative inset-y-0 left-0 z-50
@@ -71,7 +78,12 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             }
           >
             <Icon size={18} />
-            {label}
+            <span className="flex-1">{label}</span>
+            {to === '/inbox' && pendingCount > 0 && (
+              <span className="flex-shrink-0 min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-indigo-600 text-white text-xs font-semibold">
+                {pendingCount}
+              </span>
+            )}
           </NavLink>
         ))}
       </nav>

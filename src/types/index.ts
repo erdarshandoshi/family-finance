@@ -49,6 +49,8 @@ export interface MutualFund {
   nominee?: string;
   folioNumber?: string;
   remarks?: string;
+  /** Legal holder when the fund is earmarked for another member (e.g. a minor's SIP held by a parent). */
+  guardianMemberId?: string;
 }
 
 export interface PPFEntry {
@@ -155,6 +157,51 @@ export interface Goals {
   targetAllocation?: Partial<Record<AssetKey, number>>;  // percentages summing ~100
 }
 
+// ─── SIP automation: folio registry + review inbox ───────────────────────────
+
+/**
+ * Maps an AMC folio to the family member it's earmarked for (beneficiary) and the
+ * legal holder (guardian). Set once, then reused to auto-attribute incoming SIPs.
+ */
+export interface FolioMapping {
+  id: string;
+  folioNumber: string;
+  amc: string;
+  schemeName: string;
+  schemeCode?: string;          // mfapi.in code — enables live NAV + unit estimation
+  memberId: string;             // beneficiary — whose tab it shows under
+  guardianMemberId?: string;    // legal holder (e.g. parent for a minor's SIP)
+  isSIP: boolean;
+  sipAmount?: number;           // expected installment — helps match/validate
+}
+
+export type PendingSource = 'paste' | 'gmail' | 'sms';
+
+/**
+ * A parsed-but-unconfirmed SIP installment awaiting human review before it becomes
+ * a real MF lot. Units/NAV may be estimated from mfapi.in when the AMC email omits them.
+ */
+export interface PendingTransaction {
+  id: string;
+  source: PendingSource;
+  externalId?: string;          // gmail message id / dedupe fingerprint
+  folioNumber: string;
+  amc: string;
+  schemeName: string;
+  schemeCode?: string;
+  memberId?: string;            // resolved beneficiary (from folio registry)
+  guardianMemberId?: string;    // resolved guardian
+  amount: number;
+  installmentDate: string;      // ISO yyyy-mm-dd
+  estimatedUnits?: number;
+  estimatedNav?: number;
+  navDate?: string;             // ISO date the NAV is sourced from
+  isSIP: boolean;
+  createdAt: string;            // ISO timestamp
+  rawText?: string;
+  warnings?: string[];          // e.g. "No folio mapping", "Units estimated from NAV"
+}
+
 export interface AppData {
   members: FamilyMember[];
   fds: FD[];
@@ -168,4 +215,6 @@ export interface AppData {
   journal: JournalEntry[];
   snapshots?: NetWorthSnapshot[];
   goals?: Goals;
+  folioMappings?: FolioMapping[];
+  pendingTransactions?: PendingTransaction[];
 }

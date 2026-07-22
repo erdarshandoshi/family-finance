@@ -149,6 +149,9 @@ export default function MFPage() {
                       <p className="text-content text-sm font-semibold leading-snug">{g.schemeName || '—'}</p>
                       {g.companyName && <p className="text-faint text-xs mt-0.5">{g.companyName}</p>}
                       {mfMember && <p className="text-accent text-xs mt-0.5">{mfMember.name}</p>}
+                      {g.guardianMemberId && (
+                        <p className="text-faint text-xs mt-0.5">Held by {data.members.find(m => m.id === g.guardianMemberId)?.name ?? '—'} · Guardian</p>
+                      )}
                     </div>
                     <div className="flex gap-1 flex-shrink-0">
                       <button onClick={() => setEditingGroup(g)}
@@ -220,6 +223,9 @@ export default function MFPage() {
                                   {g.isSIP ? 'SIP' : 'Lump'}
                                 </span>
                                 {mfMember && <span className="text-accent text-xs">{mfMember.name}</span>}
+                                {g.guardianMemberId && (
+                                  <span className="text-faint text-xs">Held by {data.members.find(m => m.id === g.guardianMemberId)?.name ?? '—'}</span>
+                                )}
                               </div>
                             </div>
                           </div>
