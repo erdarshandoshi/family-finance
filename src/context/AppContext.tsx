@@ -179,10 +179,10 @@ function reducer(state: AppData, action: Action): AppData {
       if (idx === -1) return { ...state, pendingTransactions: [...list, incoming] };
 
       const existing = list[idx];
-      // Allotment mails carry the real units/NAV (no navDate — that's only set when we
-      // estimate). Let exact figures replace an earlier estimate for the same installment.
+      // Allotment mails state the real units/NAV; a debit alert only lets us derive them
+      // from a NAV lookup. Let stated figures replace an earlier estimate.
       const isExact = (p: PendingTransaction) =>
-        p.estimatedUnits != null && p.estimatedNav != null && !p.navDate;
+        p.estimatedUnits != null && p.estimatedNav != null && !p.unitsEstimated;
 
       const merged: PendingTransaction = isExact(incoming) && !isExact(existing)
         ? { ...incoming, id: existing.id }

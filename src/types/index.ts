@@ -195,7 +195,9 @@ export interface PendingTransaction {
   installmentDate: string;      // ISO yyyy-mm-dd
   estimatedUnits?: number;
   estimatedNav?: number;
-  navDate?: string;             // ISO date the NAV is sourced from
+  navDate?: string;             // ISO date the NAV is sourced from (the "value date")
+  unitsEstimated?: boolean;     // true = derived from a NAV lookup; false = stated in the email
+  receivedAt?: string;          // ISO timestamp the email actually arrived
   isSIP: boolean;
   createdAt: string;            // ISO timestamp
   rawText?: string;

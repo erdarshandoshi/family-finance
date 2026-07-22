@@ -38,6 +38,8 @@ export default function Layout() {
             estimatedUnits: s.estimatedUnits ?? undefined,
             estimatedNav: s.estimatedNav ?? undefined,
             navDate: s.navDate ?? undefined,
+            unitsEstimated: s.unitsEstimated ?? undefined,
+            receivedAt: s.receivedAt ?? undefined,
             isSIP: s.isSIP ?? true,
             createdAt: s.createdAt ?? new Date().toISOString(),
             warnings: s.warnings ?? [],

@@ -136,6 +136,8 @@ function parseProse(text) {
     amount,
     units: units != null && units > 0 ? units : undefined,
     nav: nav != null && nav > 0 ? nav : undefined,
+    // The "value date" is the date whose NAV was applied — i.e. the NAV date.
+    navDate: nav != null && nav > 0 ? installmentDate : undefined,
   };
 }
 
@@ -226,10 +228,15 @@ export default async function handler(req, res) {
   // Units: from the email if present, else estimate from NAV
   let schemeCode = mapping?.schemeCode;
   if (!schemeCode) { const r = await resolveSchemeCode(parsed.schemeRaw); schemeCode = r?.schemeCode; }
-  let units = parsed.units, nav = parsed.nav, navDate;
+  let units = parsed.units, nav = parsed.nav, navDate = parsed.navDate;
+  let unitsEstimated = false;
   if ((units == null || nav == null) && schemeCode) {
     const point = await navOnDate(schemeCode, parsed.installmentDate);
-    if (point) { nav = point.nav; navDate = point.date; units = Math.round((parsed.amount / point.nav) * 1000) / 1000; warnings.push(`Units estimated from NAV ₹${point.nav} on ${point.date}.`); }
+    if (point) {
+      nav = point.nav; navDate = point.date; unitsEstimated = true;
+      units = Math.round((parsed.amount / point.nav) * 1000) / 1000;
+      warnings.push(`Units estimated from NAV ₹${point.nav} on ${point.date}.`);
+    }
   }
   if (units == null || nav == null) warnings.push('Units/NAV unresolved — enter manually in review.');
 
@@ -249,8 +256,10 @@ export default async function handler(req, res) {
     estimatedUnits: units ?? null,
     estimatedNav: nav ?? null,
     navDate: navDate || null,
+    unitsEstimated,
     isSIP: mapping?.isSIP ?? true,
     createdAt: new Date().toISOString(),
+    receivedAt: body?.date || null,
     warnings,
     gmailAccount: body?.account || null,
   };

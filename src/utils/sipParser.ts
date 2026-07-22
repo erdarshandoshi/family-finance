@@ -12,6 +12,7 @@ export interface ParsedSip {
   amount: number;
   units?: number;             // present only in allotment confirmations
   nav?: number;               // present only in allotment confirmations
+  navDate?: string;           // ISO date the stated NAV belongs to (the "value date")
 }
 
 const MONTHS: Record<string, string> = {
@@ -154,5 +155,7 @@ function parseProse(text: string): ParsedSip | null {
     amount,
     units: units != null && units > 0 ? units : undefined,
     nav: nav != null && nav > 0 ? nav : undefined,
+    // The "value date" is the date whose NAV was applied — i.e. the NAV date.
+    navDate: nav != null && nav > 0 ? installmentDate : undefined,
   };
 }

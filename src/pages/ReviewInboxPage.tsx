@@ -38,12 +38,14 @@ export default function ReviewInboxPage() {
     // Units come straight from an allotment email; otherwise estimate from NAV.
     let units = parsed.units;
     let nav = parsed.nav;
-    let navDate: string | undefined;
+    let navDate = parsed.navDate;
+    let unitsEstimated = false;
     if ((units == null || nav == null) && schemeCode) {
       const point = await navOnDate(schemeCode, parsed.installmentDate);
       if (point) {
         nav = point.nav;
         navDate = point.date;
+        unitsEstimated = true;
         units = Math.round((parsed.amount / point.nav) * 1000) / 1000;
         warnings.push(`Units estimated from NAV ₹${point.nav} on ${formatDate(point.date)}.`);
       }
@@ -73,6 +75,7 @@ export default function ReviewInboxPage() {
       estimatedUnits: units,
       estimatedNav: nav,
       navDate,
+      unitsEstimated,
       isSIP: mapping?.isSIP ?? true,
       createdAt: new Date().toISOString(),
       rawText: raw,
@@ -205,6 +208,7 @@ function PendingCard({ txn }: { txn: PendingTransaction }) {
               : txn.source === 'paste' ? 'Added manually'
               : txn.source === 'sms' ? 'From SMS'
               : 'Received via Gmail'}
+            {txn.receivedAt && <span className="text-faint"> · {formatDate(txn.receivedAt)}</span>}
           </p>
         </div>
         <span className="flex-shrink-0 text-xs bg-purple-500/10 text-purple-400 px-2 py-0.5 rounded-full">
@@ -214,8 +218,8 @@ function PendingCard({ txn }: { txn: PendingTransaction }) {
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-surface2 rounded-xl p-2.5 text-center">
         <div><p className="text-faint text-xs">Amount</p><p className="text-content text-sm font-semibold">{formatCurrency(txn.amount)}</p></div>
-        <div><p className="text-faint text-xs">Date</p><p className="text-content text-sm font-semibold">{formatDate(txn.installmentDate)}</p></div>
-        <div><p className="text-faint text-xs">Est. Value</p><p className="text-content text-sm font-semibold">{estValue ? formatCurrency(estValue) : '—'}</p></div>
+        <div><p className="text-faint text-xs">Txn / Value date</p><p className="text-content text-sm font-semibold">{formatDate(txn.installmentDate)}</p></div>
+        <div><p className="text-faint text-xs">{txn.unitsEstimated ? 'Est. Value' : 'Value'}</p><p className="text-content text-sm font-semibold">{estValue ? formatCurrency(estValue) : '—'}</p></div>
         <div><p className="text-faint text-xs">NAV date</p><p className="text-content text-sm font-semibold">{txn.navDate ? formatDate(txn.navDate) : '—'}</p></div>
       </div>
 
