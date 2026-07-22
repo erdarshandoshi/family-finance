@@ -9,15 +9,24 @@
 //   INGEST_SECRET            — shared secret; the Apps Script sends it as `x-ingest-secret`
 //   FIREBASE_SERVICE_ACCOUNT — the service-account JSON (single line) for the Admin SDK
 
-import admin from 'firebase-admin';
+// Modular subpath imports — firebase-admin v12+ does not expose the legacy
+// namespaced API (admin.apps / admin.credential) through an ESM default import.
+import { initializeApp, getApps, cert } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
 
 // ─── Firebase Admin (singleton) ─────────────────────────────────────────────────
 function getDb() {
-  if (!admin.apps.length) {
-    const svc = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-    admin.initializeApp({ credential: admin.credential.cert(svc) });
+  if (!getApps().length) {
+    const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+    if (!raw) throw new Error('FIREBASE_SERVICE_ACCOUNT env var is not set');
+    let svc;
+    try { svc = JSON.parse(raw); }
+    catch { throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON (paste the whole file contents)'); }
+    // Env vars often carry the private key with literal \n instead of real newlines
+    if (typeof svc.private_key === 'string') svc.private_key = svc.private_key.replace(/\\n/g, '\n');
+    initializeApp({ credential: cert(svc) });
   }
-  return admin.firestore();
+  return getFirestore();
 }
 
 // ─── Email parsing (ported from src/utils/sipParser.ts) ──────────────────────────
