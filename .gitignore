@@ -25,3 +25,6 @@ npm-debug.log*
 # Vite
 *.local
 .vercel
+
+# Local Firestore backups (contains financial data — never commit)
+backups/

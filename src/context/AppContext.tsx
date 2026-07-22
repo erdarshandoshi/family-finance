@@ -166,8 +166,14 @@ function reducer(state: AppData, action: Action): AppData {
     }
     case 'DELETE_FOLIO':
       return { ...state, folioMappings: (state.folioMappings ?? []).filter(f => f.id !== action.payload) };
-    case 'ADD_PENDING':
-      return { ...state, pendingTransactions: [...(state.pendingTransactions ?? []), action.payload] };
+    case 'ADD_PENDING': {
+      const list = state.pendingTransactions ?? [];
+      const fp = (p: PendingTransaction) => p.externalId || `${p.folioNumber}|${p.installmentDate}|${p.amount}`;
+      const incoming = fp(action.payload);
+      // Dedupe across paste + Gmail-drained items (same installment can arrive twice).
+      if (list.some(p => fp(p) === incoming)) return state;
+      return { ...state, pendingTransactions: [...list, action.payload] };
+    }
     case 'DELETE_PENDING':
       return { ...state, pendingTransactions: (state.pendingTransactions ?? []).filter(p => p.id !== action.payload) };
     default: return state;
