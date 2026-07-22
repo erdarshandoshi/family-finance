@@ -178,16 +178,28 @@ function reducer(state: AppData, action: Action): AppData {
         (!!p.externalId && !!incoming.externalId && p.externalId === incoming.externalId));
       if (idx === -1) return { ...state, pendingTransactions: [...list, incoming] };
 
+      const existing = list[idx];
       // Allotment mails carry the real units/NAV (no navDate — that's only set when we
       // estimate). Let exact figures replace an earlier estimate for the same installment.
       const isExact = (p: PendingTransaction) =>
         p.estimatedUnits != null && p.estimatedNav != null && !p.navDate;
-      if (isExact(incoming) && !isExact(list[idx])) {
-        const next = [...list];
-        next[idx] = { ...incoming, id: list[idx].id };
-        return { ...state, pendingTransactions: next };
-      }
-      return state;
+
+      const merged: PendingTransaction = isExact(incoming) && !isExact(existing)
+        ? { ...incoming, id: existing.id }
+        // Otherwise keep what's there but fill in anything the earlier copy lacked,
+        // so re-sending an email can enrich (not just be dropped).
+        : {
+            ...existing,
+            gmailAccount:     existing.gmailAccount     ?? incoming.gmailAccount,
+            schemeCode:       existing.schemeCode       ?? incoming.schemeCode,
+            memberId:         existing.memberId         ?? incoming.memberId,
+            guardianMemberId: existing.guardianMemberId ?? incoming.guardianMemberId,
+          };
+
+      if (JSON.stringify(merged) === JSON.stringify(existing)) return state;  // nothing new
+      const next = [...list];
+      next[idx] = merged;
+      return { ...state, pendingTransactions: next };
     }
     case 'DELETE_PENDING':
       return { ...state, pendingTransactions: (state.pendingTransactions ?? []).filter(p => p.id !== action.payload) };
