@@ -168,11 +168,26 @@ function reducer(state: AppData, action: Action): AppData {
       return { ...state, folioMappings: (state.folioMappings ?? []).filter(f => f.id !== action.payload) };
     case 'ADD_PENDING': {
       const list = state.pendingTransactions ?? [];
-      const fp = (p: PendingTransaction) => p.externalId || `${p.folioNumber}|${p.installmentDate}|${p.amount}`;
-      const incoming = fp(action.payload);
-      // Dedupe across paste + Gmail-drained items (same installment can arrive twice).
-      if (list.some(p => fp(p) === incoming)) return state;
-      return { ...state, pendingTransactions: [...list, action.payload] };
+      const incoming = action.payload;
+      // One installment can arrive twice with different source ids — e.g. a debit alert
+      // and, days later, an allotment confirmation. Match on the installment itself, not
+      // just the source id, so it can never be staged twice.
+      const key = (p: PendingTransaction) => `${p.folioNumber}|${p.installmentDate}|${p.amount}`;
+      const idx = list.findIndex(p =>
+        key(p) === key(incoming) ||
+        (!!p.externalId && !!incoming.externalId && p.externalId === incoming.externalId));
+      if (idx === -1) return { ...state, pendingTransactions: [...list, incoming] };
+
+      // Allotment mails carry the real units/NAV (no navDate — that's only set when we
+      // estimate). Let exact figures replace an earlier estimate for the same installment.
+      const isExact = (p: PendingTransaction) =>
+        p.estimatedUnits != null && p.estimatedNav != null && !p.navDate;
+      if (isExact(incoming) && !isExact(list[idx])) {
+        const next = [...list];
+        next[idx] = { ...incoming, id: list[idx].id };
+        return { ...state, pendingTransactions: next };
+      }
+      return state;
     }
     case 'DELETE_PENDING':
       return { ...state, pendingTransactions: (state.pendingTransactions ?? []).filter(p => p.id !== action.payload) };
