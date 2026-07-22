@@ -115,3 +115,59 @@ function describeStaged_(responseText) {
 function getOrCreateLabel_(name) {
   return GmailApp.getUserLabelByName(name) || GmailApp.createLabel(name);
 }
+
+// ── Diagnostics ──────────────────────────────────────────────────────────────────
+
+/**
+ * Run this when mail isn't reaching the Review Inbox.
+ * Ignores labels entirely, shows the exact plain body the parser receives, POSTs it,
+ * and prints the endpoint's reply — which says precisely which field failed.
+ */
+function debugOneEmail() {
+  Logger.log('Query: %s', SEARCH_QUERY);
+  const threads = GmailApp.search(SEARCH_QUERY, 0, 5);
+  Logger.log('Threads found (ignoring labels): %s', threads.length);
+  if (!threads.length) {
+    Logger.log('Nothing matched — widen newer_than: or check the subject terms in the Gmail search box.');
+    return;
+  }
+
+  const thread = threads[0];
+  const msg = thread.getMessages()[0];
+  const bodyText = msg.getPlainBody();
+
+  Logger.log('Subject : %s', msg.getSubject());
+  Logger.log('Date    : %s', msg.getDate());
+  Logger.log('Labels  : %s', thread.getLabels().map(function (l) { return l.getName(); }).join(', ') || '(none)');
+  Logger.log('--- plain body as the parser sees it (first 1500 chars, " | " = line break) ---');
+  Logger.log(bodyText.slice(0, 1500).replace(/\n/g, ' | '));
+
+  const res = UrlFetchApp.fetch(INGEST_URL, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { 'x-ingest-secret': INGEST_SECRET },
+    payload: JSON.stringify({
+      account: Session.getActiveUser().getEmail() || Session.getEffectiveUser().getEmail(),
+      source: 'gmail',
+      gmailMessageId: msg.getId(),
+      subject: msg.getSubject(),
+      body: bodyText,
+      date: msg.getDate().toISOString(),
+    }),
+    muteHttpExceptions: true,
+  });
+  Logger.log('--- endpoint replied HTTP %s ---', res.getResponseCode());
+  Logger.log(res.getContentText());
+}
+
+/** Strip both processing labels from matching threads so they can be re-sent. */
+function resetSipLabels() {
+  const sent = GmailApp.getUserLabelByName(PROCESSED_LABEL);
+  const skipped = GmailApp.getUserLabelByName(SKIPPED_LABEL);
+  const threads = GmailApp.search(SEARCH_QUERY, 0, MAX_THREADS);
+  threads.forEach(function (t) {
+    if (sent) t.removeLabel(sent);
+    if (skipped) t.removeLabel(skipped);
+  });
+  Logger.log('Cleared labels on %s thread(s). Now run forwardSipEmails.', threads.length);
+}
