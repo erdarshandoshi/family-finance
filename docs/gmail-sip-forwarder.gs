@@ -22,15 +22,21 @@ const INGEST_SECRET = 'PASTE-THE-SAME-SECRET-AS-VERCEL';
 const SEARCH_QUERY  = 'newer_than:10d subject:("Systematic Investment Plan" OR "transaction confirmation" OR "New Purchase" OR "units allotted")';
 
 const PROCESSED_LABEL = 'FF-SIP-Sent';
+// Mails that matched the search but weren't a SIP/purchase get their own label, so they
+// stop being retried yet stay easy to re-queue (just remove the label) if the parser
+// later learns their format.
+const SKIPPED_LABEL   = 'FF-SIP-Skipped';
 const MAX_THREADS     = 25;
 
 // ── Main ─────────────────────────────────────────────────────────────────────────
 function forwardSipEmails() {
   const label = getOrCreateLabel_(PROCESSED_LABEL);
+  const skippedLabel = getOrCreateLabel_(SKIPPED_LABEL);
   // getActiveUser() can be blank on consumer Gmail under a trigger — fall back to
   // the effective (script-owner) account so the app can show which inbox it came from.
   const account = Session.getActiveUser().getEmail() || Session.getEffectiveUser().getEmail();
-  const threads = GmailApp.search(SEARCH_QUERY + ' -label:' + PROCESSED_LABEL, 0, MAX_THREADS);
+  const threads = GmailApp.search(
+    SEARCH_QUERY + ' -label:' + PROCESSED_LABEL + ' -label:' + SKIPPED_LABEL, 0, MAX_THREADS);
 
   let staged = 0, skipped = 0, failed = 0, labelled = 0;
 
@@ -42,7 +48,7 @@ function forwardSipEmails() {
 
   threads.forEach(function (thread) {
     const messages = thread.getMessages();
-    let anySent = false;
+    let anySent = false, anySkipped = false;
 
     messages.forEach(function (msg) {
       const payload = {
@@ -67,9 +73,10 @@ function forwardSipEmails() {
           staged++; anySent = true;
           Logger.log('STAGED  %s', describeStaged_(res.getContentText()));
         } else if (code === 422) {
-          // Matched the search but isn't a SIP installment — harmless, mark done.
-          skipped++; anySent = true;
-          Logger.log('SKIPPED not a SIP email: "%s"', msg.getSubject());
+          // Matched the search but the parser didn't recognise it. Park it under a
+          // separate label rather than the "sent" one, so it can be re-queued later.
+          skipped++; anySkipped = true;
+          Logger.log('SKIPPED not recognised: "%s"', msg.getSubject());
         } else {
           failed++;
           Logger.log('FAILED  HTTP %s: %s', code, res.getContentText());
@@ -80,11 +87,15 @@ function forwardSipEmails() {
       }
     });
 
+    // A thread that staged anything counts as done; only park it as skipped if
+    // nothing in it was recognised.
     if (anySent) { thread.addLabel(label); labelled++; }
+    else if (anySkipped) { thread.addLabel(skippedLabel); }
   });
 
   Logger.log('Done — %s staged, %s skipped, %s failed, %s thread(s) labelled "%s".',
              staged, skipped, failed, labelled, PROCESSED_LABEL);
+  if (skipped > 0) Logger.log('Unrecognised mail parked under "%s" — remove that label to retry.', SKIPPED_LABEL);
   if (staged > 0) Logger.log('Open the app’s Review Inbox to confirm.');
 }
 
