@@ -63,18 +63,29 @@ function fieldMatches(text, labels) {
   const lines = text.split(/\r?\n/);
   for (const label of labels) {
     const target = label.toLowerCase();
-    for (const line of lines) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
       let left, right;
       const c = line.indexOf(':');
       if (c !== -1) { left = line.slice(0, c); right = line.slice(c + 1); }
       else {
         const m = line.match(/^(.*?)(?:\t+|\s{2,})(.+)$/);
-        if (!m) continue;
-        left = m[1]; right = m[2];
+        if (m) { left = m[1]; right = m[2]; }
+        else { left = line; right = ''; }        // label may sit alone on its line
       }
-      left = left.trim().toLowerCase().replace(/\s+/g, ' ');
-      right = right.trim();
-      if (right && left.startsWith(target)) out.push(right);
+      const l = left.trim().toLowerCase().replace(/\s+/g, ' ');
+      if (!l.startsWith(target)) continue;
+
+      let v = right.trim();
+      if (!v) {
+        if (l.length > 40) continue;             // bare long line = prose, not a label
+        // Gmail flattens HTML tables to "label\nvalue" — take the next non-empty line
+        for (let j = i + 1; j < lines.length && j <= i + 3; j++) {
+          const cand = lines[j].trim();
+          if (cand) { v = cand; break; }
+        }
+      }
+      if (v) out.push(v);
     }
   }
   return out;
@@ -128,9 +139,8 @@ export function folioMatches(stored, parsed) {
   return ta.slice(-n) === tb.slice(-n);
 }
 
-export function parseSipEmail(text) {
-  if (!text || !text.trim()) return null;
-  const flat = text.replace(/\s+/g, ' ');
+function extractFields(text) {
+  const flat = String(text || '').replace(/\s+/g, ' ');
 
   let folio = fieldValue(text, ['Folio Number', 'Folio No', 'Folio']);
   if (!folio) {
@@ -160,7 +170,11 @@ export function parseSipEmail(text) {
     amount = toNumber(m && m[1]);
   }
 
-  if (!folio || !schemeRaw || !installmentDate || amount == null) return null;
+  const missing = [];
+  if (!folio) missing.push('folio');
+  if (!schemeRaw) missing.push('scheme');
+  if (!installmentDate) missing.push('date');
+  if (amount == null) missing.push('amount');
 
   let units = fieldNumber(text, ['Units (Nos', 'Units Allotted', 'Allotted Units', 'No. of Units', 'Units']);
   if (units == null) {
@@ -181,15 +195,42 @@ export function parseSipEmail(text) {
     : undefined;
 
   return {
-    amc: detectAmc(text, schemeRaw),
+    missing,
+    amc: detectAmc(text, schemeRaw || ''),
     folioNumber: folio,
     installmentDate,
-    schemeRaw: schemeRaw.replace(/\s+/g, ' ').trim(),
+    schemeRaw: schemeRaw ? schemeRaw.replace(/\s+/g, ' ').trim() : null,
     amount,
     units: units != null && units > 0 ? units : undefined,
     nav: nav != null && nav > 0 ? nav : undefined,
     navDate,
     reference: fieldValue(text, ['Transaction Reference Number', 'Transaction Reference', 'Reference Number']) || undefined,
+  };
+}
+
+export function parseSipEmail(text) {
+  if (!text || !text.trim()) return null;
+  const f = extractFields(text);
+  if (f.missing.length) return null;
+  delete f.missing;
+  return f;
+}
+
+// What the parser could and couldn't find. Returned in the 422 so a failure is
+// diagnosable straight from the Apps Script log instead of by guesswork.
+export function describeParse(text) {
+  const f = extractFields(String(text || ''));
+  return {
+    missing: f.missing,
+    found: {
+      folio: f.folioNumber || null,
+      scheme: f.schemeRaw || null,
+      date: f.installmentDate || null,
+      amount: f.amount == null ? null : f.amount,
+      units: f.units == null ? null : f.units,
+      nav: f.nav == null ? null : f.nav,
+      reference: f.reference || null,
+    },
   };
 }
 
@@ -260,7 +301,16 @@ export default async function handler(req, res) {
   const text = [body?.subject, body?.body].filter(Boolean).join('\n');
 
   const parsed = parseSipEmail(text);
-  if (!parsed) return res.status(422).json({ error: 'Could not parse a SIP installment from the email' });
+  if (!parsed) {
+    const diag = describeParse(text);
+    return res.status(422).json({
+      error: 'Could not parse a SIP installment from the email',
+      missing: diag.missing,
+      found: diag.found,
+      subject: body?.subject || null,
+      preview: String(text).replace(/\s+/g, ' ').slice(0, 300),
+    });
+  }
 
   let db;
   try { db = getDb(); } catch (e) {

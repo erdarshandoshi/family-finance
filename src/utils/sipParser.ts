@@ -61,19 +61,31 @@ function fieldMatches(text: string, labels: string[]): string[] {
   const lines = text.split(/\r?\n/);
   for (const label of labels) {
     const target = label.toLowerCase();
-    for (const line of lines) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
       let left: string, right: string;
       const c = line.indexOf(':');
       if (c !== -1) {
         left = line.slice(0, c); right = line.slice(c + 1);
       } else {
         const m = line.match(/^(.*?)(?:\t+|\s{2,})(.+)$/);
-        if (!m) continue;
-        left = m[1]; right = m[2];
+        if (m) { left = m[1]; right = m[2]; }
+        else { left = line; right = ''; }        // label may sit alone on its line
       }
-      left = left.trim().toLowerCase().replace(/\s+/g, ' ');
-      right = right.trim();
-      if (right && left.startsWith(target)) out.push(right);
+      const l = left.trim().toLowerCase().replace(/\s+/g, ' ');
+      if (!l.startsWith(target)) continue;
+
+      let v = right.trim();
+      if (!v) {
+        // A bare label that long is prose, not a table row
+        if (l.length > 40) continue;
+        // Gmail flattens HTML tables to "label\nvalue" — take the next non-empty line
+        for (let j = i + 1; j < lines.length && j <= i + 3; j++) {
+          const cand = lines[j].trim();
+          if (cand) { v = cand; break; }
+        }
+      }
+      if (v) out.push(v);
     }
   }
   return out;

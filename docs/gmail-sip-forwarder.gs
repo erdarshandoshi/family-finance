@@ -76,7 +76,7 @@ function forwardSipEmails() {
           // Matched the search but the parser didn't recognise it. Park it under a
           // separate label rather than the "sent" one, so it can be re-queued later.
           skipped++; anySkipped = true;
-          Logger.log('SKIPPED not recognised: "%s"', msg.getSubject());
+          Logger.log('SKIPPED "%s"\n         %s', msg.getSubject(), res.getContentText());
         } else {
           failed++;
           Logger.log('FAILED  HTTP %s: %s', code, res.getContentText());
