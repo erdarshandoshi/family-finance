@@ -200,6 +200,7 @@ export interface PendingTransaction {
   createdAt: string;            // ISO timestamp
   rawText?: string;
   warnings?: string[];          // e.g. "No folio mapping", "Units estimated from NAV"
+  gmailAccount?: string;        // which Gmail inbox the email arrived in
 }
 
 export interface AppData {

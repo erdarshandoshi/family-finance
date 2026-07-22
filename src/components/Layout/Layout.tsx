@@ -41,6 +41,7 @@ export default function Layout() {
             isSIP: s.isSIP ?? true,
             createdAt: s.createdAt ?? new Date().toISOString(),
             warnings: s.warnings ?? [],
+            gmailAccount: s.gmailAccount ?? undefined,
           };
           dispatch({ type: 'ADD_PENDING', payload });          // reducer dedupes by fingerprint
           deleteDoc(doc(db, 'sipInbox', d.id)).catch(() => {}); // hand-off complete

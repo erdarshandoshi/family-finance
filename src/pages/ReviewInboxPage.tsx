@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Inbox, ClipboardPaste, Loader2, Check, X, AlertTriangle, Calculator } from 'lucide-react';
+import { Inbox, ClipboardPaste, Loader2, Check, X, AlertTriangle, Calculator, Mail } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatDate, generateId } from '../utils/helpers';
 import { parseSipEmail } from '../utils/sipParser';
@@ -197,6 +197,14 @@ function PendingCard({ txn }: { txn: PendingTransaction }) {
           <p className="text-faint text-xs mt-0.5">
             {txn.amc} · Folio <span className="font-mono text-muted">{txn.folioNumber}</span>
             {txn.schemeCode && <> · code {txn.schemeCode}</>}
+          </p>
+          <p className="text-faint text-xs mt-1 flex items-center gap-1.5">
+            <Mail size={11} className="flex-shrink-0" />
+            {txn.gmailAccount
+              ? <>Received in <span className="text-muted">{txn.gmailAccount}</span></>
+              : txn.source === 'paste' ? 'Added manually'
+              : txn.source === 'sms' ? 'From SMS'
+              : 'Received via Gmail'}
           </p>
         </div>
         <span className="flex-shrink-0 text-xs bg-purple-500/10 text-purple-400 px-2 py-0.5 rounded-full">

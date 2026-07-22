@@ -22,7 +22,9 @@ const MAX_THREADS     = 25;
 // ── Main ─────────────────────────────────────────────────────────────────────────
 function forwardSipEmails() {
   const label = getOrCreateLabel_(PROCESSED_LABEL);
-  const account = Session.getActiveUser().getEmail();
+  // getActiveUser() can be blank on consumer Gmail under a trigger — fall back to
+  // the effective (script-owner) account so the app can show which inbox it came from.
+  const account = Session.getActiveUser().getEmail() || Session.getEffectiveUser().getEmail();
   const threads = GmailApp.search(SEARCH_QUERY + ' -label:' + PROCESSED_LABEL, 0, MAX_THREADS);
 
   let staged = 0, skipped = 0, failed = 0, labelled = 0;
