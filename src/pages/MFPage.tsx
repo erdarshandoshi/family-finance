@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Edit2, Trash2, BarChart3, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { Plus, Edit2, Trash2, BarChart3, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight, List, CalendarDays } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, getPLColor } from '../utils/helpers';
 import type { MutualFund } from '../types';
 import Modal from '../components/common/Modal';
 import MFForm from '../components/MF/MFForm';
 import MFHoldingEditor from '../components/MF/MFHoldingEditor';
+import SIPCalendar from '../components/MF/SIPCalendar';
 import { ALL_MEMBERS_ID } from '../components/Layout/Header';
 import { groupMutualFunds } from '../utils/mfUtils';
 
@@ -14,6 +15,7 @@ export default function MFPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingGroup, setEditingGroup] = useState<ReturnType<typeof groupMutualFunds>[number] | null>(null);
   const [filter, setFilter] = useState<'all' | 'lump' | 'sip'>('all');
+  const [view, setView] = useState<'list' | 'calendar'>('list');
   const navFetchedRef = useRef(false);
 
   useEffect(() => {
@@ -116,17 +118,31 @@ export default function MFPage() {
         ))}
       </div>
 
-      {/* Filter */}
-      <div className="flex items-center gap-2">
-        {(['all', 'lump', 'sip'] as const).map(f => (
-          <button key={f} onClick={() => setFilter(f)}
-            className={`px-4 py-1.5 rounded-xl text-sm font-medium transition-colors ${filter === f ? 'bg-indigo-600 text-white' : 'bg-surface text-muted hover:text-content'}`}>
-            {f === 'all' ? 'All Funds' : f === 'sip' ? 'SIP Only' : 'Lump Sum Only'}
-          </button>
-        ))}
+      {/* Filter + view toggle */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          {(['all', 'lump', 'sip'] as const).map(f => (
+            <button key={f} onClick={() => setFilter(f)}
+              className={`px-3 sm:px-4 py-1.5 rounded-xl text-sm font-medium transition-colors ${filter === f ? 'bg-indigo-600 text-white' : 'bg-surface text-muted hover:text-content'}`}>
+              {f === 'all' ? 'All Funds' : f === 'sip' ? 'SIP Only' : 'Lump Sum Only'}
+            </button>
+          ))}
+        </div>
+        {/* List / Calendar — calendar makes SIP debit dates obvious */}
+        <div className="flex items-center gap-1 bg-surface2 rounded-xl p-1">
+          {([['list', List, 'List'], ['calendar', CalendarDays, 'Calendar']] as const).map(([v, Icon, label]) => (
+            <button key={v} onClick={() => setView(v)}
+              title={label}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${view === v ? 'bg-indigo-600 text-white' : 'text-muted hover:text-content'}`}>
+              <Icon size={15} /> <span className="hidden sm:inline">{label}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
-      {sortedGroups.length === 0 ? (
+      {view === 'calendar' ? (
+        <SIPCalendar mfs={sortedGroups.flatMap(g => g.lots)} />
+      ) : sortedGroups.length === 0 ? (
         <div className="text-center py-16 text-faint">
           <BarChart3 size={40} className="mx-auto mb-3 opacity-30" />
           <p>No funds yet. Add your first Mutual Fund or SIP.</p>

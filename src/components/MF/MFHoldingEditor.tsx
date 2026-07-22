@@ -9,6 +9,7 @@ interface LotRow {
   dateOfPurchase: string;
   quantity: number | '';
   purchasePrice: number | '';
+  isInitialPayment?: boolean;
 }
 
 interface Props {
@@ -35,6 +36,7 @@ export default function MFHoldingEditor({ group, members, onSave, onCancel }: Pr
       dateOfPurchase: l.dateOfPurchase,
       quantity: l.quantity,
       purchasePrice: l.purchasePrice,
+      isInitialPayment: l.isInitialPayment,
     }))
   );
 
@@ -70,6 +72,10 @@ export default function MFHoldingEditor({ group, members, onSave, onCancel }: Pr
       if (folioNumber) mf.folioNumber = folioNumber;
       if (nominee) mf.nominee = nominee;
       if (remarks) mf.remarks = remarks;
+      // Carry through attribution/classification the editor doesn't expose,
+      // otherwise saving here would silently drop them.
+      if (group.guardianMemberId) mf.guardianMemberId = group.guardianMemberId;
+      if (l.isInitialPayment) mf.isInitialPayment = true;
       return mf;
     });
     onSave(finalLots, originalIds);
@@ -146,7 +152,12 @@ export default function MFHoldingEditor({ group, members, onSave, onCancel }: Pr
           {lots.map((lot, idx) => (
             <div key={lot.id} className="bg-surface2 rounded-xl p-3">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-faint text-xs font-medium">Lot {idx + 1}</span>
+                <span className="text-faint text-xs font-medium flex items-center gap-1.5">
+                  Lot {idx + 1}
+                  {lot.isInitialPayment && (
+                    <span className="bg-amber-500/15 text-warn px-1.5 py-0.5 rounded text-xs font-medium">Initial</span>
+                  )}
+                </span>
                 {lots.length > 1 && (
                   <button type="button" onClick={() => deleteLot(lot.id)}
                     className="text-danger/60 hover:text-danger transition-colors">

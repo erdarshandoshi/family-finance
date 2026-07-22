@@ -51,6 +51,8 @@ export interface MutualFund {
   remarks?: string;
   /** Legal holder when the fund is earmarked for another member (e.g. a minor's SIP held by a parent). */
   guardianMemberId?: string;
+  /** First/one-time payment made when the SIP was registered, as opposed to a recurring instalment. */
+  isInitialPayment?: boolean;
 }
 
 export interface PPFEntry {

@@ -132,6 +132,10 @@ export default function MFForm({ memberId, members, onSave, onCancel }: MFFormPr
 
   // SIP installments
   const [sipLots, setSipLots] = useState<SIPLotRow[]>([emptySIPLot()]);
+
+  // Optional one-time payment made at the moment the SIP was registered
+  const [includeInitial, setIncludeInitial] = useState(false);
+  const [initialLot, setInitialLot] = useState<SIPLotRow>(emptySIPLot());
   const navHistoryRef = useRef<Map<string, number>>(new Map());
   const [historyFetched, setHistoryFetched] = useState(false);
   const [fetchingHistory, setFetchingHistory] = useState(false);
@@ -191,6 +195,7 @@ export default function MFForm({ memberId, members, onSave, onCancel }: MFFormPr
         setHistoryFetched(true);
         // Recalculate any existing SIP lots now that history is loaded
         setSipLots(prev => prev.map(lot => recalcSIPLot(lot, map)));
+        setInitialLot(prev => recalcSIPLot(prev, map));
       }
     } catch { /* ignore */ }
     finally { setFetchingHistory(false); }
@@ -242,6 +247,21 @@ export default function MFForm({ memberId, members, onSave, onCancel }: MFFormPr
   const deleteSIPLot = (id: string) => {
     if (sipLots.length === 1) return;
     setSipLots(prev => prev.filter(l => l.id !== id));
+  };
+
+  // ── Initial payment helpers ──────────────────────────────────────────────
+  const updateInitialDate = (dateOfPurchase: string) =>
+    setInitialLot(prev => recalcSIPLot({ ...prev, dateOfPurchase }, navHistoryRef.current));
+
+  const updateInitialAmount = (raw: string) => {
+    const amount = raw === '' ? ('' as const) : Number(raw);
+    setInitialLot(prev => {
+      const updated = { ...prev, amount };
+      if (prev.nav && amount !== '') {
+        return { ...updated, quantity: Math.round((Number(amount) / prev.nav) * 1000) / 1000 };
+      }
+      return { ...updated, quantity: null };
+    });
   };
 
   // Generate monthly SIP installments between two dates
@@ -311,6 +331,16 @@ export default function MFForm({ memberId, members, onSave, onCancel }: MFFormPr
       mfs = sipLots
         .filter(l => l.nav !== null && l.quantity !== null && l.quantity > 0)
         .map(l => buildMF(l.navDate ?? l.dateOfPurchase, l.quantity!, l.nav!));
+      // The registration-time payment is a lot like any other, just flagged so it
+      // stays distinguishable from the recurring instalments.
+      if (includeInitial && initialLot.nav !== null && initialLot.quantity) {
+        const initial = buildMF(
+          initialLot.navDate ?? initialLot.dateOfPurchase,
+          initialLot.quantity, initialLot.nav,
+        );
+        initial.isInitialPayment = true;
+        mfs = [initial, ...mfs];
+      }
     } else {
       mfs = lots.map(l => buildMF(l.dateOfPurchase, Number(l.quantity) || 0, Number(l.purchasePrice) || 0));
     }
@@ -333,7 +363,10 @@ export default function MFForm({ memberId, members, onSave, onCancel }: MFFormPr
   const lumpTotalCurrent = lumpTotalUnits * currentPrice;
   const lumpPL = lumpTotalCurrent - lumpTotalInvested;
 
-  const canSubmit = isSIP ? sipLots.some(l => l.nav !== null && l.quantity) : true;
+  const initialReady = includeInitial && initialLot.nav !== null && !!initialLot.quantity;
+  const canSubmit = isSIP
+    ? (sipLots.some(l => l.nav !== null && l.quantity) || initialReady)
+    : true;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -495,6 +528,56 @@ export default function MFForm({ memberId, members, onSave, onCancel }: MFFormPr
       {/* ── SIP Installments ──────────────────────────────────────────────── */}
       {isSIP && (
         <div className="space-y-3">
+          {/* Initial / first payment made at registration */}
+          <div className={`rounded-xl border p-3 space-y-3 ${includeInitial ? 'bg-amber-500/10 border-amber-500/20' : 'bg-surface2 border-edge'}`}>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" checked={includeInitial}
+                onChange={e => setIncludeInitial(e.target.checked)}
+                className="w-4 h-4 mt-0.5 rounded accent-amber-500 flex-shrink-0" />
+              <span>
+                <span className="text-content text-sm font-medium">Add initial payment</span>
+                <span className="block text-faint text-xs mt-0.5">
+                  A one-time amount paid when the SIP was registered — often different from the monthly instalment.
+                </span>
+              </span>
+            </label>
+
+            {includeInitial && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div>
+                  <label className="text-muted text-xs mb-1 block">Payment Date</label>
+                  <input type="date" value={initialLot.dateOfPurchase}
+                    onChange={e => updateInitialDate(e.target.value)} className={fieldCls} />
+                </div>
+                <div>
+                  <label className="text-muted text-xs mb-1 block">Amount (₹)</label>
+                  <input type="number" min="1" step="1" placeholder="e.g. 25000"
+                    value={initialLot.amount}
+                    onChange={e => updateInitialAmount(e.target.value)} className={fieldCls} />
+                </div>
+                <div>
+                  <label className="text-muted text-xs mb-1 block">
+                    NAV (₹)
+                    {initialLot.navDate && initialLot.navDate !== initialLot.dateOfPurchase && (
+                      <span className="text-faint normal-case ml-1">on {initialLot.navDate}</span>
+                    )}
+                  </label>
+                  <div className={`${roFieldCls} ${initialLot.nav ? '' : 'text-faint'}`}>
+                    {fetchingHistory
+                      ? <span className="flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> …</span>
+                      : initialLot.nav ? `₹${initialLot.nav.toFixed(4)}` : '—'}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-muted text-xs mb-1 block">Units</label>
+                  <div className={`${roFieldCls} ${initialLot.quantity ? '' : 'text-faint'}`}>
+                    {initialLot.quantity ? initialLot.quantity.toFixed(3) : '—'}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Header */}
           <div className="flex items-center justify-between">
             <p className="text-muted text-sm font-medium">
