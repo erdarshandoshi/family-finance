@@ -29,7 +29,11 @@ function getDb() {
   return getFirestore();
 }
 
-// ─── Email parsing (ported from src/utils/sipParser.ts) ──────────────────────────
+// ─── Email parsing (mirrors src/utils/sipParser.ts) ──────────────────────────────
+// Field-by-field with fallbacks, because AMC/RTA formats differ:
+//   • "Label : value"   — HDFC/CAMS debit alerts
+//   • "Label<TAB>value" — KFintech/Quant transaction tables (no colon at all)
+//   • prose sentences   — SBI/CAMS purchase confirmations
 const MONTHS = { JAN:'01',FEB:'02',MAR:'03',APR:'04',MAY:'05',JUN:'06',JUL:'07',AUG:'08',SEP:'09',OCT:'10',NOV:'11',DEC:'12' };
 
 function parseSipDate(raw) {
@@ -43,56 +47,139 @@ function parseSipDate(raw) {
   return null;
 }
 
-function fieldValue(text, labels) {
+// Strict: the whole value must be numeric, so "02/07/2026" is never read as 2.
+function toNumber(raw) {
+  if (raw == null) return null;
+  const s = String(raw).replace(/[₹\s]/g, '').replace(/,/g, '');
+  if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Row separator is the first colon, or a tab / run of spaces. Requiring the label to
+// start the line keeps prose containing the same words from matching.
+function fieldMatches(text, labels) {
+  const out = [];
   const lines = text.split(/\r?\n/);
   for (const label of labels) {
     const target = label.toLowerCase();
     for (const line of lines) {
-      const idx = line.indexOf(':');
-      if (idx === -1) continue;
-      const left = line.slice(0, idx).trim().toLowerCase().replace(/\s+/g, ' ');
-      const right = line.slice(idx + 1).trim();
-      if (right && left.startsWith(target)) return right;
+      let left, right;
+      const c = line.indexOf(':');
+      if (c !== -1) { left = line.slice(0, c); right = line.slice(c + 1); }
+      else {
+        const m = line.match(/^(.*?)(?:\t+|\s{2,})(.+)$/);
+        if (!m) continue;
+        left = m[1]; right = m[2];
+      }
+      left = left.trim().toLowerCase().replace(/\s+/g, ' ');
+      right = right.trim();
+      if (right && left.startsWith(target)) out.push(right);
     }
+  }
+  return out;
+}
+
+function fieldValue(text, labels) {
+  const all = fieldMatches(text, labels);
+  return all.length ? all[0] : null;
+}
+
+// First labelled value that is actually numeric — lets "NAV Date" sit above
+// "NAV (Rs. per unit)" without hijacking the NAV lookup.
+function fieldNumber(text, labels) {
+  for (const v of fieldMatches(text, labels)) {
+    const n = toNumber(v);
+    if (n != null) return n;
   }
   return null;
 }
 
-function toNumber(raw) {
-  if (!raw) return null;
-  const n = parseFloat(String(raw).replace(/[₹,\s]/g, ''));
-  return Number.isFinite(n) ? n : null;
+const AMC_FILLER = /^(for|from|is|the|to|your|of|in|at|and|dear|greetings|processed|sincerely|regards)$/i;
+
+// Matched per line so a subject like "…is processed" can't bleed into the brand name.
+function detectAmc(text, schemeRaw) {
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/([A-Za-z][A-Za-z&.]*(?:\s+[A-Za-z][A-Za-z&.]*){0,3})\s*-?\s*Mutual\s+Fund/i);
+    if (!m) continue;
+    const words = m[1].split(/\s+/).filter(w => !AMC_FILLER.test(w));
+    if (words.length) return `${words.join(' ')} Mutual Fund`;
+  }
+  const brand = String(schemeRaw || '').trim().split(/\s+/)[0] || '';
+  return brand ? `${brand.charAt(0).toUpperCase()}${brand.slice(1)} Mutual Fund` : 'Mutual Fund';
 }
 
-function detectAmc(text, schemeRaw) {
-  const m = text.match(/([A-Za-z][A-Za-z&.\s]{1,40}?)\s*-?\s*Mutual Fund/i);
-  if (m) return `${m[1].trim().replace(/\s+/g, ' ')} Mutual Fund`;
-  const brand = schemeRaw.split(/[-–]/)[0]?.trim();
-  return brand ? `${brand} Mutual Fund` : 'Mutual Fund';
+export function isMaskedFolio(folio) {
+  return /[x*]/i.test(String(folio || ''));
+}
+
+// Stored folios are full; emailed ones may be masked ("XXXXXXXX4331"), so fall back
+// to comparing the visible trailing digits.
+export function folioMatches(stored, parsed) {
+  const a = String(stored || '').replace(/\s/g, '').toLowerCase();
+  const b = String(parsed || '').replace(/\s/g, '').toLowerCase();
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (!isMaskedFolio(a) && !isMaskedFolio(b)) return false;
+  const tail = s => (s.match(/\d+$/) || [''])[0];
+  const ta = tail(a), tb = tail(b);
+  if (ta.length < 4 || tb.length < 4) return false;
+  const n = Math.min(ta.length, tb.length);
+  return ta.slice(-n) === tb.slice(-n);
 }
 
 export function parseSipEmail(text) {
   if (!text || !text.trim()) return null;
-  // Two shapes: a "Label : value" table (HDFC/CAMS debit alerts) and a prose
-  // confirmation sentence (SBI/CAMS purchase confirmations).
-  return parseLabelled(text) ?? parseProse(text);
-}
+  const flat = text.replace(/\s+/g, ' ');
 
-// Strategy 1 — "Label : value" table
-function parseLabelled(text) {
-  const folio = fieldValue(text, ['Folio Number','Folio No','Folio']);
-  const dateRaw = fieldValue(text, ['Installment Date','Instalment Date','Transaction Date','Date of Transaction','SIP Date']);
-  const schemeRaw = fieldValue(text, ['SIP registered under','Scheme Name','Scheme']);
-  const amountRaw = fieldValue(text, ['Installment Amount','Instalment Amount','Amount','SIP Amount']);
-  const unitsRaw = fieldValue(text, ['Units Allotted','Units','No. of Units','Allotted Units']);
-  const navRaw = fieldValue(text, ['NAV','Purchase Price','Price','Allotment NAV']);
+  let folio = fieldValue(text, ['Folio Number', 'Folio No', 'Folio']);
+  if (!folio) {
+    const m = flat.match(/Folio\s*(?:Number|No\.?)?\s*(?:\/\s*DP\s*ID\.?)?\s*(?:Folio\s*)?([x*\d][\w/-]*)/i);
+    folio = m ? m[1] : null;
+  }
+  if (folio) folio = folio.replace(/[.,;]+$/, '').trim();
 
+  let schemeRaw = fieldValue(text, ['Scheme Details', 'Scheme Name', 'SIP registered under', 'Scheme']);
+  if (!schemeRaw) {
+    const m = flat.match(/(?:purchase|investment|subscription)\s+(?:in|under)\s+(.+?)\s+(?:for\s+(?:value\s+date|Rs)|on\s+\d)/i);
+    schemeRaw = m ? m[1].trim() : null;
+  }
+
+  const navDateRaw = fieldValue(text, ['NAV Date', 'Value Date']);
+  let dateRaw = navDateRaw
+    || fieldValue(text, ['Transaction Date', 'Installment Date', 'Instalment Date', 'Date of Transaction', 'SIP Date']);
+  if (!dateRaw) {
+    const m = flat.match(/(?:value\s+date|nav\s+date|dated|on)\s*:?\s*(\d{1,2}[-/][A-Za-z]{3,}[-/]\d{4}|\d{1,2}[-/]\d{1,2}[-/]\d{4})/i);
+    dateRaw = m ? m[1] : null;
+  }
   const installmentDate = dateRaw ? parseSipDate(dateRaw) : null;
-  const amount = toNumber(amountRaw);
-  if (!folio || !installmentDate || !schemeRaw || amount == null) return null;
 
-  const units = toNumber(unitsRaw);
-  const nav = toNumber(navRaw);
+  let amount = fieldNumber(text, ['Installment Amount', 'Instalment Amount', 'Amount', 'SIP Amount']);
+  if (amount == null) {
+    const m = flat.match(/(?:for|of)\s+Rs\.?\s*([\d,]+(?:\.\d+)?)/i);
+    amount = toNumber(m && m[1]);
+  }
+
+  if (!folio || !schemeRaw || !installmentDate || amount == null) return null;
+
+  let units = fieldNumber(text, ['Units (Nos', 'Units Allotted', 'Allotted Units', 'No. of Units', 'Units']);
+  if (units == null) {
+    const m = flat.match(/([\d,]+(?:\.\d+)?)\s*units?\b/i);
+    units = toNumber(m && m[1]);
+  }
+
+  let nav = fieldNumber(text, ['NAV (Rs', 'NAV per unit', 'Allotment NAV', 'Purchase Price', 'NAV', 'Price']);
+  if (nav == null) {
+    const m = flat.match(/at\s+NAV\s+of\s+(?:Rs\.?\s*)?([\d,]+(?:\.\d+)?)/i);
+    nav = toNumber(m && m[1]);
+  }
+
+  if (units == null && nav != null && nav > 0) units = Math.round((amount / nav) * 1000) / 1000;
+
+  const navDate = nav != null && nav > 0
+    ? (navDateRaw ? (parseSipDate(navDateRaw) || installmentDate) : installmentDate)
+    : undefined;
+
   return {
     amc: detectAmc(text, schemeRaw),
     folioNumber: folio,
@@ -101,43 +188,8 @@ function parseLabelled(text) {
     amount,
     units: units != null && units > 0 ? units : undefined,
     nav: nav != null && nav > 0 ? nav : undefined,
-  };
-}
-
-// Strategy 2 — prose confirmation sentence
-// e.g. "…processed your purchase in <SCHEME> for value date 20-Jul-2026 for
-//       Rs. 4,999.75 at NAV of 53.5565 in Folio No / DP ID. Folio 50426350."
-function parseProse(text) {
-  const flat = text.replace(/\s+/g, ' ');
-
-  const schemeM = flat.match(/(?:purchase|investment|subscription)\s+in\s+(.+?)\s+for\s+(?:value\s+date|dated|Rs)/i);
-  const dateM   = flat.match(/(?:value\s+date|dated|date)\s*:?\s*(\d{1,2}[-/][A-Za-z]{3,}[-/]\d{4}|\d{1,2}[-/]\d{1,2}[-/]\d{4})/i);
-  const amountM = flat.match(/(?:for|of)\s+Rs\.?\s*([\d,]+(?:\.\d+)?)/i);
-  const navM    = flat.match(/at\s+NAV\s+of\s+(?:Rs\.?\s*)?([\d,]+(?:\.\d+)?)/i);
-  const folioM  = flat.match(/Folio(?:\s*No\.?)?(?:\s*\/\s*DP\s*ID\.?)?\s*(?:Folio\s*)?(\d[\w/-]*)/i);
-  const unitsM  = flat.match(/([\d,]+(?:\.\d+)?)\s*units?\b/i);
-
-  const folio = folioM && folioM[1];
-  const schemeRaw = schemeM && schemeM[1].trim();
-  const installmentDate = dateM ? parseSipDate(dateM[1]) : null;
-  const amount = toNumber(amountM && amountM[1]);
-  if (!folio || !schemeRaw || !installmentDate || amount == null) return null;
-
-  const nav = toNumber(navM && navM[1]);
-  let units = toNumber(unitsM && unitsM[1]);
-  // NAV came from the email itself, so amount ÷ NAV is exact — not an estimate.
-  if (units == null && nav != null && nav > 0) units = Math.round((amount / nav) * 1000) / 1000;
-
-  return {
-    amc: detectAmc(text, schemeRaw),
-    folioNumber: folio,
-    installmentDate,
-    schemeRaw,
-    amount,
-    units: units != null && units > 0 ? units : undefined,
-    nav: nav != null && nav > 0 ? nav : undefined,
-    // The "value date" is the date whose NAV was applied — i.e. the NAV date.
-    navDate: nav != null && nav > 0 ? installmentDate : undefined,
+    navDate,
+    reference: fieldValue(text, ['Transaction Reference Number', 'Transaction Reference', 'Reference Number']) || undefined,
   };
 }
 
@@ -221,7 +273,7 @@ export default async function handler(req, res) {
   try {
     const snap = await db.doc('users/shared-family').get();
     const mappings = (snap.exists && snap.data()?.folioMappings) || [];
-    mapping = mappings.find(m => String(m.folioNumber).trim() === parsed.folioNumber.trim()) || null;
+    mapping = mappings.find(m => folioMatches(m.folioNumber, parsed.folioNumber)) || null;
   } catch { warnings.push('Could not read folio registry.'); }
   if (!mapping) warnings.push('No folio mapping — set beneficiary/guardian in review.');
 
@@ -240,12 +292,18 @@ export default async function handler(req, res) {
   }
   if (units == null || nav == null) warnings.push('Units/NAV unresolved — enter manually in review.');
 
-  const fingerprint = `${parsed.folioNumber}|${parsed.installmentDate}|${parsed.amount}`;
+  // An RTA sends a "request received" mail and a later "processed" mail for the same
+  // purchase, with different amounts (stamp duty) but the SAME reference — so key on the
+  // reference when present, and fall back to folio+date+amount otherwise.
+  const fingerprint = parsed.reference
+    ? `ref:${parsed.reference}`
+    : `${parsed.folioNumber}|${parsed.installmentDate}|${parsed.amount}`;
   const docId = fingerprint.replace(/[^a-zA-Z0-9]/g, '_');
   const record = {
     source: body?.source || 'gmail',
-    externalId: body?.gmailMessageId || fingerprint,
-    folioNumber: parsed.folioNumber,
+    externalId: fingerprint,
+    // Prefer the registry's full folio over a masked one from the email
+    folioNumber: mapping?.folioNumber || parsed.folioNumber,
     amc: mapping?.amc || parsed.amc,
     schemeName: mapping?.schemeName || parsed.schemeRaw,
     schemeCode: schemeCode || null,

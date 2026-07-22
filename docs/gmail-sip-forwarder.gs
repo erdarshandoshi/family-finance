@@ -16,9 +16,10 @@ const INGEST_SECRET = 'PASTE-THE-SAME-SECRET-AS-VERCEL';
 // and an over-tight from: filter silently matches nothing.
 //   "Systematic Investment Plan" → HDFC/CAMS debit alerts
 //   "transaction confirmation"   → SBI/CAMS purchase confirmations
+//   "New Purchase"               → KFintech/Quant request + processed mails
 //   "units allotted"             → other AMCs' allotment mails
 // Test any change in the Gmail search box first.
-const SEARCH_QUERY  = 'newer_than:10d subject:("Systematic Investment Plan" OR "transaction confirmation" OR "units allotted")';
+const SEARCH_QUERY  = 'newer_than:10d subject:("Systematic Investment Plan" OR "transaction confirmation" OR "New Purchase" OR "units allotted")';
 
 const PROCESSED_LABEL = 'FF-SIP-Sent';
 const MAX_THREADS     = 25;

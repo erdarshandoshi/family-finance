@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Inbox, ClipboardPaste, Loader2, Check, X, AlertTriangle, Calculator, Mail } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatDate, generateId } from '../utils/helpers';
-import { parseSipEmail } from '../utils/sipParser';
+import { parseSipEmail, folioMatches } from '../utils/sipParser';
 import { resolveSchemeCode, navOnDate } from '../utils/mfNav';
 import type { MutualFund, PendingTransaction } from '../types';
 
@@ -26,7 +26,7 @@ export default function ReviewInboxPage() {
     setBusy(true);
 
     // Attribute via the folio registry
-    const mapping = mappings.find(m => m.folioNumber.trim() === parsed.folioNumber.trim());
+    const mapping = mappings.find(m => folioMatches(m.folioNumber, parsed.folioNumber));
     const warnings: string[] = [];
     let schemeCode = mapping?.schemeCode;
     if (!schemeCode) {
@@ -52,9 +52,13 @@ export default function ReviewInboxPage() {
     }
     if (units == null || nav == null) warnings.push('Units/NAV unresolved — enter manually or add a scheme code.');
 
-    // Dedupe on folio + date + amount
-    const fingerprint = `${parsed.folioNumber}|${parsed.installmentDate}|${parsed.amount}`;
-    if (pending.some(p => `${p.folioNumber}|${p.installmentDate}|${p.amount}` === fingerprint)) {
+    // The RTA's "request received" and "processed" mails share a reference but differ in
+    // amount, so key on the reference when present.
+    const fingerprint = parsed.reference
+      ? `ref:${parsed.reference}`
+      : `${parsed.folioNumber}|${parsed.installmentDate}|${parsed.amount}`;
+    if (pending.some(p => p.externalId === fingerprint
+      || `${p.folioNumber}|${p.installmentDate}|${p.amount}` === fingerprint)) {
       setBusy(false);
       setError('This installment is already in the inbox (same folio, date and amount).');
       return;
@@ -64,7 +68,7 @@ export default function ReviewInboxPage() {
       id: generateId(),
       source: 'paste',
       externalId: fingerprint,
-      folioNumber: parsed.folioNumber,
+      folioNumber: mapping?.folioNumber || parsed.folioNumber,   // prefer the full folio
       amc: mapping?.amc || parsed.amc,
       schemeName: mapping?.schemeName || parsed.schemeRaw,
       schemeCode,
@@ -149,7 +153,7 @@ function PendingCard({ txn }: { txn: PendingTransaction }) {
   const [units, setUnits] = useState<string>(txn.estimatedUnits != null ? String(txn.estimatedUnits) : '');
   const [nav, setNav] = useState<string>(txn.estimatedNav != null ? String(txn.estimatedNav) : '');
   const existingFolio = (data.folioMappings ?? [])
-    .find(m => (m.folioNumber ?? '').trim() === txn.folioNumber.trim());
+    .find(m => folioMatches(m.folioNumber, txn.folioNumber));
   const [saveFolio, setSaveFolio] = useState(!existingFolio);
 
   const unitsNum = parseFloat(units);
