@@ -55,6 +55,23 @@ function countInvestments(d: AppData): number {
        + (d.postInvestments?.length ?? 0) + (d.nps?.length ?? 0);
 }
 
+// One mapping per folio. Collapses duplicates (a folio is the natural key), keeping the
+// original id and merging later entries over earlier ones without letting blanks win.
+function dedupeFolios(list: FolioMapping[]): FolioMapping[] {
+  const byFolio = new Map<string, FolioMapping>();
+  for (const f of list) {
+    const key = (f?.folioNumber ?? '').trim().toLowerCase();
+    if (!key) continue;                       // unusable row — drop it
+    const prev = byFolio.get(key);
+    if (!prev) { byFolio.set(key, f); continue; }
+    const defined = Object.fromEntries(
+      Object.entries(f).filter(([, v]) => v !== undefined && v !== ''),
+    ) as Partial<FolioMapping>;
+    byFolio.set(key, { ...prev, ...defined, id: prev.id });
+  }
+  return [...byFolio.values()];
+}
+
 function normalize(data: AppData): AppData {
   const d = data as unknown as Record<string, unknown>;
   return {
@@ -65,7 +82,7 @@ function normalize(data: AppData): AppData {
     journal:         Array.isArray(d['journal'])         ? data.journal         : [],
     snapshots:       Array.isArray(d['snapshots'])       ? data.snapshots       : [],
     goals:           (d['goals'] && typeof d['goals'] === 'object') ? data.goals : {},
-    folioMappings:      Array.isArray(d['folioMappings'])      ? data.folioMappings      : [],
+    folioMappings:      Array.isArray(d['folioMappings'])      ? dedupeFolios(data.folioMappings!) : [],
     pendingTransactions: Array.isArray(d['pendingTransactions']) ? data.pendingTransactions : [],
   };
 }
@@ -161,8 +178,16 @@ function reducer(state: AppData, action: Action): AppData {
     case 'SET_GOALS': return { ...state, goals: action.payload };
     case 'UPSERT_FOLIO': {
       const list = state.folioMappings ?? [];
-      const exists = list.some(f => f.id === action.payload.id);
-      return { ...state, folioMappings: exists ? list.map(f => f.id === action.payload.id ? action.payload : f) : [...list, action.payload] };
+      const key = (action.payload.folioNumber ?? '').trim().toLowerCase();
+      // Editing an existing row matches by id; a fresh row still upserts on the folio
+      // number so confirming the same SIP twice can't create duplicates.
+      let idx = list.findIndex(f => f.id === action.payload.id);
+      if (idx === -1) idx = list.findIndex(f => (f.folioNumber ?? '').trim().toLowerCase() === key);
+      if (idx === -1) return { ...state, folioMappings: [...list, action.payload] };
+
+      const next = [...list];
+      next[idx] = { ...action.payload, id: list[idx].id };   // keep the original id
+      return { ...state, folioMappings: dedupeFolios(next) };
     }
     case 'DELETE_FOLIO':
       return { ...state, folioMappings: (state.folioMappings ?? []).filter(f => f.id !== action.payload) };

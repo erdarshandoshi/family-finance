@@ -148,7 +148,9 @@ function PendingCard({ txn }: { txn: PendingTransaction }) {
   const [guardianId, setGuardianId] = useState(txn.guardianMemberId ?? '');
   const [units, setUnits] = useState<string>(txn.estimatedUnits != null ? String(txn.estimatedUnits) : '');
   const [nav, setNav] = useState<string>(txn.estimatedNav != null ? String(txn.estimatedNav) : '');
-  const [saveFolio, setSaveFolio] = useState(!data.folioMappings?.some(m => m.folioNumber === txn.folioNumber));
+  const existingFolio = (data.folioMappings ?? [])
+    .find(m => (m.folioNumber ?? '').trim() === txn.folioNumber.trim());
+  const [saveFolio, setSaveFolio] = useState(!existingFolio);
 
   const unitsNum = parseFloat(units);
   const navNum = parseFloat(nav);
@@ -174,7 +176,7 @@ function PendingCard({ txn }: { txn: PendingTransaction }) {
 
     if (saveFolio && txn.schemeCode) {
       dispatch({ type: 'UPSERT_FOLIO', payload: {
-        id: generateId(),
+        id: existingFolio?.id ?? generateId(),   // reuse the row so it updates, not duplicates
         folioNumber: txn.folioNumber,
         amc: txn.amc,
         schemeName: txn.schemeName,
@@ -259,7 +261,9 @@ function PendingCard({ txn }: { txn: PendingTransaction }) {
       {txn.schemeCode && (
         <label className="flex items-center gap-2 text-xs text-muted">
           <input type="checkbox" checked={saveFolio} onChange={e => setSaveFolio(e.target.checked)} className="w-3.5 h-3.5 rounded accent-indigo-600" />
-          Also save this folio → member mapping for next time
+          {existingFolio
+            ? 'Update the saved folio mapping with these details'
+            : 'Also save this folio → member mapping for next time'}
         </label>
       )}
 
