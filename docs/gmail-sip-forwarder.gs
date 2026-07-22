@@ -25,6 +25,14 @@ function forwardSipEmails() {
   const account = Session.getActiveUser().getEmail();
   const threads = GmailApp.search(SEARCH_QUERY + ' -label:' + PROCESSED_LABEL, 0, MAX_THREADS);
 
+  let staged = 0, skipped = 0, failed = 0, labelled = 0;
+
+  Logger.log('Scanning %s new thread(s) for %s', threads.length, account || '(this account)');
+  if (threads.length === 0) {
+    Logger.log('No new SIP emails matched. Query: %s', SEARCH_QUERY);
+    return;
+  }
+
   threads.forEach(function (thread) {
     const messages = thread.getMessages();
     let anySent = false;
@@ -47,16 +55,43 @@ function forwardSipEmails() {
           muteHttpExceptions: true,
         });
         const code = res.getResponseCode();
-        // 200 = staged, 422 = not a SIP email (fine to mark done and move on)
-        if (code === 200 || code === 422) anySent = true;
-        else Logger.log('ingest failed %s: %s', code, res.getContentText());
+
+        if (code === 200) {
+          staged++; anySent = true;
+          Logger.log('STAGED  %s', describeStaged_(res.getContentText()));
+        } else if (code === 422) {
+          // Matched the search but isn't a SIP installment — harmless, mark done.
+          skipped++; anySent = true;
+          Logger.log('SKIPPED not a SIP email: "%s"', msg.getSubject());
+        } else {
+          failed++;
+          Logger.log('FAILED  HTTP %s: %s', code, res.getContentText());
+        }
       } catch (e) {
-        Logger.log('POST error: ' + e);
+        failed++;
+        Logger.log('FAILED  POST error: %s', e);
       }
     });
 
-    if (anySent) thread.addLabel(label);
+    if (anySent) { thread.addLabel(label); labelled++; }
   });
+
+  Logger.log('Done — %s staged, %s skipped, %s failed, %s thread(s) labelled "%s".',
+             staged, skipped, failed, labelled, PROCESSED_LABEL);
+  if (staged > 0) Logger.log('Open the app’s Review Inbox to confirm.');
+}
+
+/** Turn the endpoint's JSON response into a readable one-line summary. */
+function describeStaged_(responseText) {
+  try {
+    const r = JSON.parse(responseText).record;
+    return Utilities.formatString('%s | folio %s | Rs.%s on %s | %s units @ Rs.%s',
+      r.schemeName, r.folioNumber, r.amount, r.installmentDate,
+      r.estimatedUnits == null ? '?' : r.estimatedUnits,
+      r.estimatedNav == null ? '?' : r.estimatedNav);
+  } catch (e) {
+    return responseText;
+  }
 }
 
 function getOrCreateLabel_(name) {
