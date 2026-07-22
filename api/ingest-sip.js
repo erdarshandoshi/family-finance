@@ -71,8 +71,15 @@ function detectAmc(text, schemeRaw) {
   return brand ? `${brand} Mutual Fund` : 'Mutual Fund';
 }
 
-function parseSipEmail(text) {
+export function parseSipEmail(text) {
   if (!text || !text.trim()) return null;
+  // Two shapes: a "Label : value" table (HDFC/CAMS debit alerts) and a prose
+  // confirmation sentence (SBI/CAMS purchase confirmations).
+  return parseLabelled(text) ?? parseProse(text);
+}
+
+// Strategy 1 — "Label : value" table
+function parseLabelled(text) {
   const folio = fieldValue(text, ['Folio Number','Folio No','Folio']);
   const dateRaw = fieldValue(text, ['Installment Date','Instalment Date','Transaction Date','Date of Transaction','SIP Date']);
   const schemeRaw = fieldValue(text, ['SIP registered under','Scheme Name','Scheme']);
@@ -91,6 +98,41 @@ function parseSipEmail(text) {
     folioNumber: folio,
     installmentDate,
     schemeRaw: schemeRaw.replace(/\s+/g, ' ').trim(),
+    amount,
+    units: units != null && units > 0 ? units : undefined,
+    nav: nav != null && nav > 0 ? nav : undefined,
+  };
+}
+
+// Strategy 2 — prose confirmation sentence
+// e.g. "…processed your purchase in <SCHEME> for value date 20-Jul-2026 for
+//       Rs. 4,999.75 at NAV of 53.5565 in Folio No / DP ID. Folio 50426350."
+function parseProse(text) {
+  const flat = text.replace(/\s+/g, ' ');
+
+  const schemeM = flat.match(/(?:purchase|investment|subscription)\s+in\s+(.+?)\s+for\s+(?:value\s+date|dated|Rs)/i);
+  const dateM   = flat.match(/(?:value\s+date|dated|date)\s*:?\s*(\d{1,2}[-/][A-Za-z]{3,}[-/]\d{4}|\d{1,2}[-/]\d{1,2}[-/]\d{4})/i);
+  const amountM = flat.match(/(?:for|of)\s+Rs\.?\s*([\d,]+(?:\.\d+)?)/i);
+  const navM    = flat.match(/at\s+NAV\s+of\s+(?:Rs\.?\s*)?([\d,]+(?:\.\d+)?)/i);
+  const folioM  = flat.match(/Folio(?:\s*No\.?)?(?:\s*\/\s*DP\s*ID\.?)?\s*(?:Folio\s*)?(\d[\w/-]*)/i);
+  const unitsM  = flat.match(/([\d,]+(?:\.\d+)?)\s*units?\b/i);
+
+  const folio = folioM && folioM[1];
+  const schemeRaw = schemeM && schemeM[1].trim();
+  const installmentDate = dateM ? parseSipDate(dateM[1]) : null;
+  const amount = toNumber(amountM && amountM[1]);
+  if (!folio || !schemeRaw || !installmentDate || amount == null) return null;
+
+  const nav = toNumber(navM && navM[1]);
+  let units = toNumber(unitsM && unitsM[1]);
+  // NAV came from the email itself, so amount ÷ NAV is exact — not an estimate.
+  if (units == null && nav != null && nav > 0) units = Math.round((amount / nav) * 1000) / 1000;
+
+  return {
+    amc: detectAmc(text, schemeRaw),
+    folioNumber: folio,
+    installmentDate,
+    schemeRaw,
     amount,
     units: units != null && units > 0 ? units : undefined,
     nav: nav != null && nav > 0 ? nav : undefined,

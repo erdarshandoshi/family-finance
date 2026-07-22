@@ -12,9 +12,13 @@
 const INGEST_URL    = 'https://YOUR-VERCEL-DOMAIN/api/ingest-sip';
 const INGEST_SECRET = 'PASTE-THE-SAME-SECRET-AS-VERCEL';
 
-// Gmail search for SIP mails. Tune senders/subjects to what you actually receive.
-const SEARCH_QUERY  = 'newer_than:3d (from:(camsonline.com OR kfintech.com OR mailer OR wealth) ' +
-                      'subject:(SIP OR "Systematic Investment" OR installment OR instalment OR "units allotted" OR allotment))';
+// Gmail search for SIP mails. Subject-only on purpose: sender domains vary by AMC/RTA
+// and an over-tight from: filter silently matches nothing.
+//   "Systematic Investment Plan" → HDFC/CAMS debit alerts
+//   "transaction confirmation"   → SBI/CAMS purchase confirmations
+//   "units allotted"             → other AMCs' allotment mails
+// Test any change in the Gmail search box first.
+const SEARCH_QUERY  = 'newer_than:10d subject:("Systematic Investment Plan" OR "transaction confirmation" OR "units allotted")';
 
 const PROCESSED_LABEL = 'FF-SIP-Sent';
 const MAX_THREADS     = 25;
