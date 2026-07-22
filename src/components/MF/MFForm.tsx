@@ -102,6 +102,7 @@ function recalcSIPLot(lot: SIPLotRow, history: Map<string, number>): SIPLotRow {
 export default function MFForm({ memberId, members, onSave, onCancel }: MFFormProps) {
   const defaultMemberId = members.find(m => m.id === memberId) ? memberId : (members[0]?.id ?? memberId);
   const [selectedMemberId, setSelectedMemberId] = useState(defaultMemberId);
+  const [guardianMemberId, setGuardianMemberId] = useState('');
   const [isSIP, setIsSIP] = useState(false);
 
   // Scheme identity
@@ -301,6 +302,7 @@ export default function MFForm({ memberId, members, onSave, onCancel }: MFFormPr
       if (folioNumber) mf.folioNumber = folioNumber;
       if (nominee) mf.nominee = nominee;
       if (remarks) mf.remarks = remarks;
+      if (guardianMemberId) mf.guardianMemberId = guardianMemberId;
       return mf;
     };
 
@@ -362,6 +364,18 @@ export default function MFForm({ memberId, members, onSave, onCancel }: MFFormPr
             ))}
           </div>
         </div>
+      </div>
+
+      {/* Guardian (optional) — for a fund legally held by one member but earmarked for another */}
+      <div>
+        <label className={lbl}>Guardian (held in whose name)</label>
+        <select className={cls} value={guardianMemberId} onChange={e => setGuardianMemberId(e.target.value)}>
+          <option value="">— None (same as member) —</option>
+          {members.filter(m => m.id !== selectedMemberId).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+        </select>
+        <p className="text-faint text-xs mt-1">
+          Set when this fund is legally held by another member (e.g. a parent) but earmarked for the selected member.
+        </p>
       </div>
 
       {/* Scheme search */}
