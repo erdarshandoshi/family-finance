@@ -12,6 +12,9 @@ const ordinal = (d: number) => {
   return `${d}${s}`;
 };
 
+/** SIPs run for years — let the schedule be browsed well beyond the data we hold. */
+const LAST_YEAR = 2045;
+
 interface MonthCell {
   month: number;
   lots: MutualFund[];
@@ -19,6 +22,7 @@ interface MonthCell {
   hasInitial: boolean;
   missed: boolean;      // inside the active run but nothing landed
   future: boolean;
+  projected: boolean;   // no instalment yet, but one is expected on the usual day
 }
 
 /**
@@ -73,11 +77,14 @@ function FundTrack({ group, members }: { group: MFGroup; members: FamilyMember[]
     [group.lots],
   );
 
-  const years = useMemo(
+  // Years that hold instalments — used for the quick-jump chips
+  const dataYears = useMemo(
     () => [...new Set(lots.map(l => Number(l.dateOfPurchase.slice(0, 4))))].sort(),
     [lots],
   );
-  const [year, setYear] = useState(() => years[years.length - 1] ?? new Date().getFullYear());
+  const thisYear = new Date().getFullYear();
+  const firstYear = dataYears[0] ?? thisYear;
+  const [year, setYear] = useState(() => dataYears[dataYears.length - 1] ?? thisYear);
   const [openMonth, setOpenMonth] = useState<number | null>(null);
 
   const now = new Date();
@@ -104,9 +111,14 @@ function FundTrack({ group, members }: { group: MFGroup; members: FamilyMember[]
       : year > now.getFullYear() ? -1
       : now.getMonth();
 
+    // Once a rhythm is established, every later month is expected until the SIP stops
+    const started = lots.length > 0 ? new Date(lots[0].dateOfPurchase) : null;
+
     return Array.from({ length: 12 }, (_, m) => {
       const monthLots = inYear.filter(l => Number(l.dateOfPurchase.slice(5, 7)) - 1 === m);
       const future = year > now.getFullYear() || (year === now.getFullYear() && m > now.getMonth());
+      const afterStart = !!started
+        && (year > started.getFullYear() || (year === started.getFullYear() && m >= started.getMonth()));
       return {
         month: m,
         lots: monthLots,
@@ -114,9 +126,10 @@ function FundTrack({ group, members }: { group: MFGroup; members: FamilyMember[]
         hasInitial: monthLots.some(l => l.isInitialPayment),
         missed: monthLots.length === 0 && firstIdx !== -1 && m > firstIdx && m <= lastActive,
         future,
+        projected: monthLots.length === 0 && future && afterStart && sipDay != null,
       };
     });
-  }, [lots, year, now]);
+  }, [lots, year, now, sipDay]);
 
   const yearLots = lots.filter(l => l.dateOfPurchase.startsWith(String(year)));
   const done = cells.filter(c => c.lots.length > 0).length;
@@ -158,21 +171,21 @@ function FundTrack({ group, members }: { group: MFGroup; members: FamilyMember[]
         </div>
       </div>
 
-      {/* Year strip */}
+      {/* Year strip — browsable all the way to 2045, not just years with data */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1">
           <button
-            onClick={() => setYear(y => y - 1)}
-            disabled={year <= years[0]}
+            onClick={() => setYear(y => Math.max(firstYear, y - 1))}
+            disabled={year <= firstYear}
             className="p-1 rounded text-muted hover:text-content disabled:opacity-25 transition-colors"
             aria-label="Previous year"
           >
             <ChevronLeft size={15} />
           </button>
-          <span className="text-content text-sm font-semibold tabular-nums">{year}</span>
+          <span className="text-content text-sm font-semibold tabular-nums w-11 text-center">{year}</span>
           <button
-            onClick={() => setYear(y => y + 1)}
-            disabled={year >= years[years.length - 1]}
+            onClick={() => setYear(y => Math.min(LAST_YEAR, y + 1))}
+            disabled={year >= LAST_YEAR}
             className="p-1 rounded text-muted hover:text-content disabled:opacity-25 transition-colors"
             aria-label="Next year"
           >
@@ -181,8 +194,23 @@ function FundTrack({ group, members }: { group: MFGroup; members: FamilyMember[]
         </div>
         <p className="text-faint text-xs">
           {done} paid{missedCount > 0 && <span className="text-warn"> · {missedCount} missed</span>}
+          {done === 0 && cells.some(c => c.projected) && <span className="text-muted">scheduled</span>}
         </p>
       </div>
+
+      {/* Quick jump between years that actually hold instalments */}
+      {dataYears.length > 1 && (
+        <div className="flex items-center gap-1 overflow-x-auto pb-0.5 -mx-1 px-1">
+          {dataYears.map(y => (
+            <button key={y} onClick={() => { setYear(y); setOpenMonth(null); }}
+              className={`flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${
+                y === year ? 'bg-indigo-600 text-white' : 'bg-surface2 text-muted hover:text-content'
+              }`}>
+              {y}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Month ticks — 2 rows on mobile, one on desktop */}
       <div className="grid grid-cols-6 sm:grid-cols-12 gap-1.5">
@@ -199,6 +227,7 @@ function FundTrack({ group, members }: { group: MFGroup; members: FamilyMember[]
                 selected ? 'bg-indigo-600 text-white'
                 : paid ? (c.hasInitial ? 'bg-amber-500/15 text-warn' : 'bg-emerald-500/15 text-success')
                 : c.missed ? 'bg-red-500/10 text-danger'
+                : c.projected ? 'border border-dashed border-edge text-faint'
                 : c.future ? 'bg-surface2 text-faint opacity-50'
                 : 'bg-surface2 text-faint'
               }`}
@@ -208,7 +237,9 @@ function FundTrack({ group, members }: { group: MFGroup; members: FamilyMember[]
                 ? <Check size={13} strokeWidth={3} />
                 : c.missed
                   ? <AlertTriangle size={11} />
-                  : <span className="w-1 h-1 rounded-full bg-current opacity-40" />}
+                  : c.projected && sipDay
+                    ? <span className="text-[9px] leading-none tabular-nums">{sipDay}</span>
+                    : <span className="w-1 h-1 rounded-full bg-current opacity-40" />}
             </button>
           );
         })}
@@ -234,6 +265,21 @@ function FundTrack({ group, members }: { group: MFGroup; members: FamilyMember[]
               </span>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Legend — only where it earns its space */}
+      {cells.some(c => c.projected || c.missed) && (
+        <div className="flex items-center gap-3 flex-wrap text-xs text-faint">
+          <span className="flex items-center gap-1"><Check size={10} strokeWidth={3} className="text-success" /> paid</span>
+          {cells.some(c => c.missed) && (
+            <span className="flex items-center gap-1"><AlertTriangle size={10} className="text-danger" /> missed</span>
+          )}
+          {cells.some(c => c.projected) && (
+            <span className="flex items-center gap-1">
+              <span className="w-2.5 h-2.5 rounded border border-dashed border-edge" /> scheduled {sipDay ? ordinal(sipDay) : ''}
+            </span>
+          )}
         </div>
       )}
 

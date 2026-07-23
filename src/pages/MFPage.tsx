@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Edit2, Trash2, BarChart3, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight, List, Repeat } from 'lucide-react';
+import { Plus, Edit2, Trash2, BarChart3, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight, List, Repeat, CalendarDays } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, getPLColor } from '../utils/helpers';
 import type { MutualFund } from '../types';
 import Modal from '../components/common/Modal';
 import MFForm from '../components/MF/MFForm';
 import MFHoldingEditor from '../components/MF/MFHoldingEditor';
+import SIPCalendar from '../components/MF/SIPCalendar';
 import SIPTracker from '../components/MF/SIPTracker';
 import { ALL_MEMBERS_ID } from '../components/Layout/Header';
 import { groupMutualFunds } from '../utils/mfUtils';
@@ -15,7 +16,7 @@ export default function MFPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingGroup, setEditingGroup] = useState<ReturnType<typeof groupMutualFunds>[number] | null>(null);
   const [filter, setFilter] = useState<'all' | 'lump' | 'sip'>('all');
-  const [view, setView] = useState<'list' | 'sip'>('list');
+  const [view, setView] = useState<'list' | 'calendar' | 'sip'>('list');
   const navFetchedRef = useRef(false);
 
   useEffect(() => {
@@ -128,19 +129,25 @@ export default function MFPage() {
             </button>
           ))}
         </div>
-        {/* List / SIP Tracker — the tracker shows each SIP's instalment rhythm */}
+        {/* List / Calendar / SIP Tracker */}
         <div className="flex items-center gap-1 bg-surface2 rounded-xl p-1">
-          {([['list', List, 'List'], ['sip', Repeat, 'SIP Tracker']] as const).map(([v, Icon, label]) => (
+          {([
+            ['list', List, 'List'],
+            ['calendar', CalendarDays, 'Calendar'],
+            ['sip', Repeat, 'SIP Tracker'],
+          ] as const).map(([v, Icon, label]) => (
             <button key={v} onClick={() => setView(v)}
               title={label}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${view === v ? 'bg-indigo-600 text-white' : 'text-muted hover:text-content'}`}>
-              <Icon size={15} /> <span className="hidden sm:inline">{label}</span>
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${view === v ? 'bg-indigo-600 text-white' : 'text-muted hover:text-content'}`}>
+              <Icon size={15} /> <span className="hidden lg:inline">{label}</span>
             </button>
           ))}
         </div>
       </div>
 
-      {view === 'sip' ? (
+      {view === 'calendar' ? (
+        <SIPCalendar mfs={sortedGroups.flatMap(g => g.lots)} />
+      ) : view === 'sip' ? (
         /* Always every SIP, regardless of the lump/SIP filter */
         <SIPTracker groups={allGroups} members={data.members} />
       ) : sortedGroups.length === 0 ? (
