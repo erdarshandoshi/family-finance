@@ -48,20 +48,39 @@ function scoreMatch(raw: string, candidate: string): number {
   if (wantIdcw === candIdcw) score += 5; else score -= 5;
 
   // Overlap of meaningful tokens
-  const stop = new Set(['fund', 'plan', 'option', 'the', 'scheme', 'growth', 'direct', 'regular', 'idcw', 'dividend']);
-  const rTokens = r.split(' ').filter(t => t.length > 2 && !stop.has(t));
-  const cTokens = new Set(c.split(' '));
-  for (const t of rTokens) if (cTokens.has(t)) score += 2;
+  const stop = new Set(['fund', 'plan', 'option', 'the', 'and', 'for', 'with', 'scheme',
+    'growth', 'direct', 'regular', 'idcw', 'dividend']);
+  const meaningful = (s: string) => s.split(' ').filter(t => t.length > 2 && !stop.has(t));
+  const rTokens = meaningful(r);
+  const cTokens = meaningful(c);
+  const rSet = new Set(rTokens);
+  const cSet = new Set(cTokens);
+  for (const t of rTokens) if (cSet.has(t)) score += 2;
+  // Penalise words the candidate adds — otherwise "HDFC Large and Mid Cap Fund" ties with
+  // "HDFC Mid Cap Fund" for an email about the latter.
+  for (const t of cTokens) if (!rSet.has(t)) score -= 2;
 
   return score;
 }
 
-// Resolve the best mfapi scheme code for a raw scheme string from an email.
-export async function resolveSchemeCode(schemeRaw: string): Promise<SchemeMatch | null> {
-  // Search on the fund name without plan/option noise for broader recall.
+// AMCs and mfapi disagree on spacing ("Small Cap" vs "Smallcap"), and mfapi's search is
+// literal — so try a few spellings rather than giving up on the first miss.
+function queryVariants(schemeRaw: string): string[] {
   const base = schemeRaw.replace(/\b(direct|regular|plan|growth|idcw|dividend|option|reinvestment|payout)\b/gi, ' ')
     .replace(/[-–]/g, ' ').replace(/\s+/g, ' ').trim();
-  const results = await searchSchemes(base || schemeRaw);
+  const joined = base.replace(/\b(small|mid|large|multi|flexi|micro)\s+cap\b/gi, '$1cap');
+  const split = base.replace(/\b(small|mid|large|multi|flexi|micro)cap\b/gi, '$1 cap');
+  const firstTwo = base.split(' ').slice(0, 2).join(' ');
+  return [...new Set([base, joined, split, firstTwo].filter(Boolean))];
+}
+
+// Resolve the best mfapi scheme code for a raw scheme string from an email.
+export async function resolveSchemeCode(schemeRaw: string): Promise<SchemeMatch | null> {
+  let results: SchemeMatch[] = [];
+  for (const q of queryVariants(schemeRaw)) {
+    results = await searchSchemes(q);
+    if (results.length) break;          // first spelling that returns anything
+  }
   if (results.length === 0) return null;
 
   let best: SchemeMatch | null = null;

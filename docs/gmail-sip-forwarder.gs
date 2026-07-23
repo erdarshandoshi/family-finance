@@ -14,16 +14,18 @@ const INGEST_SECRET = 'PASTE-THE-SAME-SECRET-AS-VERCEL';
 
 // Gmail search for SIP mails. Subject-only on purpose: sender domains vary by AMC/RTA
 // and an over-tight from: filter silently matches nothing.
-//   "Systematic Investment Plan" → HDFC/CAMS debit alerts
-//   "transaction confirmation"   → SBI/CAMS purchase confirmations
-//   "New Purchase"               → KFintech/Quant request + processed mails
-//   "units allotted"             → other AMCs' allotment mails
+//   "Systematic Investment"    → HDFC/CAMS debit alerts ("...Plan (SIP)") and
+//                                KFintech "Systematic Investment request" mails.
+//                                Deliberately without "Plan" so both match.
+//   "transaction confirmation" → SBI/CAMS purchase confirmations
+//   "New Purchase"             → KFintech request + processed mails
+//   "units allotted"           → other AMCs' allotment mails
 // The trailing -subject:(...) drops cancellations/rejections, which otherwise match
-// "Systematic Investment Plan" and would be recorded as a purchase.
+// "Systematic Investment" and would be recorded as a purchase.
 // Test any change in the Gmail search box first.
 const SEARCH_QUERY  =
   'newer_than:10d ' +
-  'subject:("Systematic Investment Plan" OR "transaction confirmation" OR "New Purchase" OR "units allotted") ' +
+  'subject:("Systematic Investment" OR "transaction confirmation" OR "New Purchase" OR "units allotted") ' +
   '-subject:(cancellation OR cancelled OR canceled OR ceased OR discontinued OR rejected OR failed OR reversal OR refund)';
 
 const PROCESSED_LABEL = 'FF-SIP-Sent';
