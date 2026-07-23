@@ -147,6 +147,15 @@ export function shouldKeepExisting(prev, incoming) {
   return isProcessedRecord(prev) && !isProcessedRecord(incoming);
 }
 
+// Aliases are exact — once a masked form has been corrected once, it resolves
+// deterministically instead of relying on the trailing-digit heuristic.
+export function folioMappingMatches(mapping, parsed) {
+  if (folioMatches(mapping.folioNumber, parsed)) return true;
+  const p = String(parsed || '').replace(/\s/g, '').toLowerCase();
+  return (mapping.folioAliases || [])
+    .some(a => String(a || '').replace(/\s/g, '').toLowerCase() === p);
+}
+
 export function isMaskedFolio(folio) {
   return /[x*]/i.test(String(folio || ''));
 }
@@ -359,7 +368,7 @@ export default async function handler(req, res) {
   try {
     const snap = await db.doc('users/shared-family').get();
     const mappings = (snap.exists && snap.data()?.folioMappings) || [];
-    mapping = mappings.find(m => folioMatches(m.folioNumber, parsed.folioNumber)) || null;
+    mapping = mappings.find(m => folioMappingMatches(m, parsed.folioNumber)) || null;
   } catch { warnings.push('Could not read folio registry.'); }
   if (!mapping) warnings.push('No folio mapping — set beneficiary/guardian in review.');
 

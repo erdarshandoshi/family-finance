@@ -168,6 +168,8 @@ export interface Goals {
 export interface FolioMapping {
   id: string;
   folioNumber: string;
+  /** Masked forms seen in emails (e.g. "XXXXXXXX4331") that resolve to this folio. */
+  folioAliases?: string[];
   amc: string;
   schemeName: string;
   schemeCode?: string;          // mfapi.in code — enables live NAV + unit estimation

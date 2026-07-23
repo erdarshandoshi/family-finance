@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Inbox, ClipboardPaste, Loader2, Check, X, AlertTriangle, Calculator, Mail } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatDate, generateId } from '../utils/helpers';
-import { parseSipEmail, folioMatches, isMaskedFolio } from '../utils/sipParser';
+import { parseSipEmail, folioMappingMatches, isMaskedFolio } from '../utils/sipParser';
 import { resolveSchemeCode, navOnDate } from '../utils/mfNav';
 import type { MutualFund, PendingTransaction } from '../types';
 
@@ -26,7 +26,7 @@ export default function ReviewInboxPage() {
     setBusy(true);
 
     // Attribute via the folio registry
-    const mapping = mappings.find(m => folioMatches(m.folioNumber, parsed.folioNumber));
+    const mapping = mappings.find(m => folioMappingMatches(m, parsed.folioNumber));
     const warnings: string[] = [];
     let schemeCode = mapping?.schemeCode;
     if (!schemeCode) {
@@ -158,7 +158,7 @@ function PendingCard({ txn }: { txn: PendingTransaction }) {
   const [isInitial, setIsInitial] = useState(false);
 
   const existingFolio = (data.folioMappings ?? [])
-    .find(m => folioMatches(m.folioNumber, folio));
+    .find(m => folioMappingMatches(m, folio) || folioMappingMatches(m, txn.folioNumber));
   const [saveFolio, setSaveFolio] = useState(!existingFolio);
 
   const unitsNum = parseFloat(units);
@@ -187,9 +187,17 @@ function PendingCard({ txn }: { txn: PendingTransaction }) {
     dispatch({ type: 'ADD_MF', payload: lot });
 
     if (saveFolio && txn.schemeCode) {
+      // Remember the masked form the AMC sends, so next month's email resolves to this
+      // folio exactly — no re-correcting.
+      const aliases = new Set((existingFolio?.folioAliases ?? []).filter(Boolean));
+      const emailed = txn.folioNumber.trim();
+      if (isMaskedFolio(emailed) && emailed.toLowerCase() !== folio.trim().toLowerCase()) {
+        aliases.add(emailed);
+      }
       dispatch({ type: 'UPSERT_FOLIO', payload: {
         id: existingFolio?.id ?? generateId(),   // reuse the row so it updates, not duplicates
         folioNumber: folio.trim(),
+        folioAliases: aliases.size ? [...aliases] : undefined,
         amc: txn.amc,
         schemeName: txn.schemeName,
         schemeCode: txn.schemeCode,

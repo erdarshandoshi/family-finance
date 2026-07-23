@@ -163,6 +163,20 @@ export function folioMatches(stored: string, parsed: string): boolean {
   return ta.slice(-n) === tb.slice(-n);
 }
 
+/**
+ * Match a stored mapping against a folio from an email. Aliases are exact — once a masked
+ * form has been corrected once, it resolves deterministically rather than by heuristic.
+ */
+export function folioMappingMatches(
+  mapping: { folioNumber: string; folioAliases?: string[] },
+  parsed: string,
+): boolean {
+  if (folioMatches(mapping.folioNumber, parsed)) return true;
+  const p = (parsed ?? '').replace(/\s/g, '').toLowerCase();
+  return (mapping.folioAliases ?? [])
+    .some(a => (a ?? '').replace(/\s/g, '').toLowerCase() === p);
+}
+
 export function parseSipEmail(text: string): ParsedSip | null {
   if (!text || !text.trim()) return null;
   if (isNonPurchaseNotice(text)) return null;

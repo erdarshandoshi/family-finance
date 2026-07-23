@@ -58,7 +58,14 @@ export default function FolioRegistryPage() {
               <tbody>
                 {mappings.map(m => (
                   <tr key={m.id} className="border-b border-edge hover:bg-surface2 transition-colors">
-                    <td className="px-4 py-3 font-mono text-content text-xs whitespace-nowrap">{m.folioNumber}</td>
+                    <td className="px-4 py-3 font-mono text-content text-xs whitespace-nowrap">
+                      {m.folioNumber}
+                      {(m.folioAliases ?? []).length > 0 && (
+                        <span className="block text-faint font-sans" title="Masked forms from AMC emails that map here">
+                          also {m.folioAliases!.join(', ')}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-content text-xs max-w-[240px]">
                       <p className="line-clamp-2">{m.schemeName || '—'}</p>
                       {m.schemeCode && <span className="text-faint text-xs">code {m.schemeCode}</span>}
