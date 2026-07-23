@@ -58,31 +58,21 @@ function toNumber(raw: string | null | undefined): number | null {
 // prose (which may contain the same words) from being picked up.
 function fieldMatches(text: string, labels: string[]): string[] {
   const out: string[] = [];
-  const lines = text.split(/\r?\n/);
+  // Whitespace-normalised, so the separator can be a colon, a tab, or a single space —
+  // Gmail renders KFintech tables as plain "Label value" on one line.
+  const norms = text.split(/\r?\n/).map(l => l.trim().replace(/\s+/g, ' '));
   for (const label of labels) {
     const target = label.toLowerCase();
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      let left: string, right: string;
-      const c = line.indexOf(':');
-      if (c !== -1) {
-        left = line.slice(0, c); right = line.slice(c + 1);
-      } else {
-        const m = line.match(/^(.*?)(?:\t+|\s{2,})(.+)$/);
-        if (m) { left = m[1]; right = m[2]; }
-        else { left = line; right = ''; }        // label may sit alone on its line
-      }
-      const l = left.trim().toLowerCase().replace(/\s+/g, ' ');
-      if (!l.startsWith(target)) continue;
+    for (let i = 0; i < norms.length; i++) {
+      const norm = norms[i];
+      if (!norm.toLowerCase().startsWith(target)) continue;
 
-      let v = right.trim();
+      let v = norm.slice(label.length).replace(/^[\s:|]+/, '').trim();
       if (!v) {
-        // A bare label that long is prose, not a table row
-        if (l.length > 40) continue;
-        // Gmail flattens HTML tables to "label\nvalue" — take the next non-empty line
-        for (let j = i + 1; j < lines.length && j <= i + 3; j++) {
-          const cand = lines[j].trim();
-          if (cand) { v = cand; break; }
+        if (norm.length > 40) continue;   // a long bare line is prose, not a label
+        // Some clients flatten tables to "label\nvalue" — use the next non-empty line
+        for (let j = i + 1; j < norms.length && j <= i + 3; j++) {
+          if (norms[j]) { v = norms[j]; break; }
         }
       }
       if (v) out.push(v);
@@ -93,12 +83,22 @@ function fieldMatches(text: string, labels: string[]): string[] {
 
 const fieldValue = (t: string, l: string[]): string | null => fieldMatches(t, l)[0] ?? null;
 
-// First labelled value that is actually numeric — lets "NAV Date" sit above
-// "NAV (Rs. per unit)" without hijacking the NAV lookup.
+const DATE_LIKE = /\d{1,2}[-/][A-Za-z0-9]{2,}[-/]\d{2,4}/;
+
+// First labelled value that yields a number. Searching for a label prefix can leave the
+// rest of the label attached ("Units (Nos" → ".) Allotted 81.479"), so fall back to the
+// trailing number — but never pull one out of a date, so "NAV Date 02/07/2026" can't
+// masquerade as the NAV.
 function fieldNumber(t: string, l: string[]): number | null {
   for (const v of fieldMatches(t, l)) {
-    const n = toNumber(v);
-    if (n != null) return n;
+    const direct = toNumber(v);
+    if (direct != null) return direct;
+    if (DATE_LIKE.test(v)) continue;
+    const nums = v.match(/-?\d[\d,]*(?:\.\d+)?/g);
+    if (nums?.length) {
+      const n = toNumber(nums[nums.length - 1]);
+      if (n != null) return n;
+    }
   }
   return null;
 }
