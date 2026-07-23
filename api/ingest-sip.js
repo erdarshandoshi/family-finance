@@ -133,6 +133,20 @@ export function isNonPurchaseNotice(text) {
   return NEGATIVE_SUBJECT.test(firstLine) || NEGATIVE_PHRASE.test(s);
 }
 
+/** A record whose units and NAV were stated in the email, not derived from a NAV lookup. */
+function isProcessedRecord(r) {
+  return !!r && r.unitsEstimated === false && r.estimatedUnits != null && r.estimatedNav != null;
+}
+
+/**
+ * An RTA sends a "request received" mail (amount only) and a later "processed" mail
+ * (exact units/NAV, and an amount net of stamp duty) under one reference. They share a
+ * doc, so guard against the request's figures landing on top of the processed ones.
+ */
+export function shouldKeepExisting(prev, incoming) {
+  return isProcessedRecord(prev) && !isProcessedRecord(incoming);
+}
+
 export function isMaskedFolio(folio) {
   return /[x*]/i.test(String(folio || ''));
 }
@@ -395,8 +409,26 @@ export default async function handler(req, res) {
   };
 
   try {
-    // Idempotent: same installment overwrites the same doc — never duplicates.
-    await db.collection('sipInbox').doc(docId).set(record, { merge: true });
+    // Idempotent: same installment reuses the same doc — never duplicates.
+    const ref = db.collection('sipInbox').doc(docId);
+    const snap = await ref.get();
+    const prev = snap.exists ? snap.data() : null;
+
+    if (shouldKeepExisting(prev, record)) {
+      // Already staged from the "processed" mail — keep its exact units/NAV/amount and
+      // only fill in anything that record was missing.
+      const fill = {};
+      for (const k of ['memberId', 'guardianMemberId', 'schemeCode', 'gmailAccount', 'receivedAt']) {
+        if ((prev[k] === undefined || prev[k] === null || prev[k] === '') && record[k] != null) fill[k] = record[k];
+      }
+      if (Object.keys(fill).length) await ref.set(fill, { merge: true });
+      return res.status(200).json({
+        ok: true, staged: docId, keptProcessed: true,
+        record: Object.assign({}, prev, fill),
+      });
+    }
+
+    await ref.set(record, { merge: true });
   } catch (e) {
     return res.status(500).json({ error: 'Failed to stage transaction', detail: String(e.message || e) });
   }
