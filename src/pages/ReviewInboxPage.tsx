@@ -161,6 +161,10 @@ function PendingCard({ txn }: { txn: PendingTransaction }) {
     .find(m => folioMappingMatches(m, folio) || folioMappingMatches(m, txn.folioNumber));
   const [saveFolio, setSaveFolio] = useState(!existingFolio);
 
+  // Ticking "save mapping" will also store the emailed (masked) folio as an alias
+  const willRememberMask = isMaskedFolio(txn.folioNumber)
+    && txn.folioNumber.trim().toLowerCase() !== folio.trim().toLowerCase();
+
   const unitsNum = parseFloat(units);
   const navNum = parseFloat(nav);
   const canConfirm = !!memberId && !!folio.trim()
@@ -306,11 +310,20 @@ function PendingCard({ txn }: { txn: PendingTransaction }) {
       </div>
 
       {txn.schemeCode && (
-        <label className="flex items-center gap-2 text-xs text-muted">
-          <input type="checkbox" checked={saveFolio} onChange={e => setSaveFolio(e.target.checked)} className="w-3.5 h-3.5 rounded accent-indigo-600" />
-          {existingFolio
-            ? 'Update the saved folio mapping with these details'
-            : 'Also save this folio → member mapping for next time'}
+        <label className="flex items-start gap-2 text-xs text-muted cursor-pointer">
+          <input type="checkbox" checked={saveFolio} onChange={e => setSaveFolio(e.target.checked)}
+            className="w-3.5 h-3.5 mt-0.5 rounded accent-indigo-600 flex-shrink-0" />
+          <span>
+            {existingFolio
+              ? 'Update the saved folio mapping with these details'
+              : 'Also save this folio → member mapping for next time'}
+            {willRememberMask && (
+              <span className="block text-faint mt-0.5">
+                Also remembers <span className="font-mono">{txn.folioNumber}</span> so future emails
+                resolve to this folio without correcting it again.
+              </span>
+            )}
+          </span>
         </label>
       )}
 
