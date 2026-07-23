@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Inbox, ClipboardPaste, Loader2, Check, X, AlertTriangle, Calculator, Mail } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatDate, generateId } from '../utils/helpers';
-import { parseSipEmail, folioMatches } from '../utils/sipParser';
+import { parseSipEmail, folioMatches, isMaskedFolio } from '../utils/sipParser';
 import { resolveSchemeCode, navOnDate } from '../utils/mfNav';
 import type { MutualFund, PendingTransaction } from '../types';
 
@@ -152,13 +152,20 @@ function PendingCard({ txn }: { txn: PendingTransaction }) {
   const [guardianId, setGuardianId] = useState(txn.guardianMemberId ?? '');
   const [units, setUnits] = useState<string>(txn.estimatedUnits != null ? String(txn.estimatedUnits) : '');
   const [nav, setNav] = useState<string>(txn.estimatedNav != null ? String(txn.estimatedNav) : '');
+  // AMCs often mask the folio (XXXXXXXX4331) — editable so it can be corrected before
+  // the mapping is saved against it.
+  const [folio, setFolio] = useState(txn.folioNumber);
+  const [isInitial, setIsInitial] = useState(false);
+
   const existingFolio = (data.folioMappings ?? [])
-    .find(m => folioMatches(m.folioNumber, txn.folioNumber));
+    .find(m => folioMatches(m.folioNumber, folio));
   const [saveFolio, setSaveFolio] = useState(!existingFolio);
 
   const unitsNum = parseFloat(units);
   const navNum = parseFloat(nav);
-  const canConfirm = memberId && Number.isFinite(unitsNum) && unitsNum > 0 && Number.isFinite(navNum) && navNum > 0;
+  const canConfirm = !!memberId && !!folio.trim()
+    && Number.isFinite(unitsNum) && unitsNum > 0
+    && Number.isFinite(navNum) && navNum > 0;
 
   const confirm = () => {
     if (!canConfirm) return;
@@ -174,14 +181,15 @@ function PendingCard({ txn }: { txn: PendingTransaction }) {
       dateOfPurchase: txn.installmentDate,
       currentPrice: navNum,     // refreshed live by the MF NAV updater
       schemeCode: txn.schemeCode,
-      folioNumber: txn.folioNumber,
+      folioNumber: folio.trim(),
+      isInitialPayment: isInitial || undefined,
     };
     dispatch({ type: 'ADD_MF', payload: lot });
 
     if (saveFolio && txn.schemeCode) {
       dispatch({ type: 'UPSERT_FOLIO', payload: {
         id: existingFolio?.id ?? generateId(),   // reuse the row so it updates, not duplicates
-        folioNumber: txn.folioNumber,
+        folioNumber: folio.trim(),
         amc: txn.amc,
         schemeName: txn.schemeName,
         schemeCode: txn.schemeCode,
@@ -204,13 +212,13 @@ function PendingCard({ txn }: { txn: PendingTransaction }) {
         <div className="min-w-0">
           <p className="text-content font-semibold text-sm leading-snug">{txn.schemeName}</p>
           <p className="text-faint text-xs mt-0.5">
-            {txn.amc} · Folio <span className="font-mono text-muted">{txn.folioNumber}</span>
+            {txn.amc} · Folio <span className="font-mono text-muted">{folio || '—'}</span>
             {txn.schemeCode && <> · code {txn.schemeCode}</>}
           </p>
           <p className="text-faint text-xs mt-1 flex items-center gap-1.5">
             <Mail size={11} className="flex-shrink-0" />
             {txn.gmailAccount
-              ? <>Received in <span className="text-muted">{txn.gmailAccount}</span></>
+              ? <>Received in <span className="text-muted">{txn.gmailAccount.split('@')[0]}</span></>
               : txn.source === 'paste' ? 'Added manually'
               : txn.source === 'sms' ? 'From SMS'
               : 'Received via Gmail'}
@@ -236,6 +244,33 @@ function PendingCard({ txn }: { txn: PendingTransaction }) {
           ))}
         </div>
       )}
+
+      {/* Folio (editable — often masked by the AMC) + payment kind */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className={labelCls}>Folio Number *</label>
+          <input className={`${inputCls} font-mono`} value={folio}
+            onChange={e => setFolio(e.target.value)} placeholder="Full folio number" />
+          {isMaskedFolio(folio) && (
+            <p className="text-warn text-xs mt-1 flex items-start gap-1">
+              <AlertTriangle size={11} className="mt-0.5 flex-shrink-0" />
+              Masked by the AMC — replace with the full number before saving the mapping.
+            </p>
+          )}
+        </div>
+        <div className="sm:pt-5">
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" checked={isInitial} onChange={e => setIsInitial(e.target.checked)}
+              className="w-4 h-4 mt-0.5 rounded accent-amber-500 flex-shrink-0" />
+            <span>
+              <span className="text-content text-sm">Initial / first payment</span>
+              <span className="block text-faint text-xs mt-0.5">
+                Tick for the one-off payment made when the SIP was registered.
+              </span>
+            </span>
+          </label>
+        </div>
+      </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div>
