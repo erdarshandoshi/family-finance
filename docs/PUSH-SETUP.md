@@ -40,10 +40,13 @@ Settings → Environment Variables (Production), then **redeploy**:
 | Name | Value |
 |------|-------|
 | `VITE_VAPID_PUBLIC_KEY` | the **public** key (shipped to the browser — that's fine) |
-| `VAPID_PUBLIC_KEY` | the same public key (used by the server) |
 | `VAPID_PRIVATE_KEY` | the **private** key — server only |
 | `VAPID_SUBJECT` | `mailto:er.darshandoshi@gmail.com` |
 | `CRON_SECRET` | a long random string; Vercel sends it as `Authorization: Bearer …` |
+
+The public key is only set once: the server falls back to `VITE_VAPID_PUBLIC_KEY`. (A
+separate `VAPID_PUBLIC_KEY` still works if you prefer it, but two copies can drift apart
+and break encryption.)
 
 Generate `CRON_SECRET` with:
 

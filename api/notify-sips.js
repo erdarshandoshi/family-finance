@@ -129,7 +129,10 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Could not read subscriptions', detail: String(e.message || e) });
   }
 
-  const { VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT } = process.env;
+  // The browser needs the public key under a VITE_ prefix; accept either name here so
+  // it only has to be set once (two copies could drift apart and break encryption).
+  const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || process.env.VITE_VAPID_PUBLIC_KEY;
+  const { VAPID_PRIVATE_KEY, VAPID_SUBJECT } = process.env;
   if (!dry) {
     if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
       return res.status(500).json({ error: 'VAPID keys are not configured' });
