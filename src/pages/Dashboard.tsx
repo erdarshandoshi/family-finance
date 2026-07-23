@@ -10,7 +10,6 @@ import { ALL_MEMBERS_ID } from '../components/Layout/Header';
 import KPICard from '../components/common/KPICard';
 import NetWorthTrend from '../components/Dashboard/NetWorthTrend';
 import MaturityLadder from '../components/Dashboard/MaturityLadder';
-import DiversificationCard from '../components/Dashboard/DiversificationCard';
 import GoalTracker from '../components/Dashboard/GoalTracker';
 import { xirr, portfolioCashFlows } from '../utils/finance';
 import type { PostScheme, AssetKey, Goals } from '../types';
@@ -312,16 +311,13 @@ export default function Dashboard() {
           {/* Net worth trend over time */}
           <NetWorthTrend data={data} memberIds={memberIds} currentTotal={totalPortfolio} />
 
-          {/* Diversification + Goals */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <DiversificationCard alloc={allocData} />
-            <GoalTracker
-              goals={data.goals ?? {}}
-              currentTotal={totalPortfolio}
-              alloc={allocByKey}
-              onSave={(g: Goals) => dispatch({ type: 'SET_GOALS', payload: g })}
-            />
-          </div>
+          {/* Goals */}
+          <GoalTracker
+            goals={data.goals ?? {}}
+            currentTotal={totalPortfolio}
+            alloc={allocByKey}
+            onSave={(g: Goals) => dispatch({ type: 'SET_GOALS', payload: g })}
+          />
 
           {/* Per-member breakdown */}
           {isAll && (

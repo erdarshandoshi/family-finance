@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Check, ChevronLeft, ChevronRight, AlertTriangle, Repeat, CalendarClock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Repeat, CalendarClock } from 'lucide-react';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 import type { MutualFund, FamilyMember } from '../../types';
 import type { MFGroup } from '../../utils/mfUtils';
@@ -101,7 +101,6 @@ function FundTrack({ group, members, mode }: {
   const thisYear = new Date().getFullYear();
   const firstYear = dataYears[0] ?? thisYear;
   const [year, setYear] = useState(() => dataYears[dataYears.length - 1] ?? thisYear);
-  const [openMonth, setOpenMonth] = useState<number | null>(null);
 
   const now = new Date();
   const memberName = (id?: string) => members.find(m => m.id === id)?.name;
@@ -166,10 +165,6 @@ function FundTrack({ group, members, mode }: {
     return d > now ? d : null;
   }, [sipDay, latest, now]);
 
-  const open = openMonth != null ? cells[openMonth] : null;
-  // Collapsed by default — expanding every month would bury the grid it summarises
-  const [showAll, setShowAll] = useState(false);
-
   return (
     <div className="bg-surface border border-edge rounded-2xl shadow-card p-4 space-y-3">
       {/* Fund header */}
@@ -197,7 +192,7 @@ function FundTrack({ group, members, mode }: {
       {mode === 'all' ? (
         <AllYears
           firstYear={firstYear} computeCells={computeCells} sipDay={sipDay}
-          onPickYear={y => { setYear(y); setOpenMonth(null); }}
+          onPickYear={y => setYear(y)}
         />
       ) : (
       <>
@@ -232,7 +227,7 @@ function FundTrack({ group, members, mode }: {
       {dataYears.length > 1 && (
         <div className="flex items-center gap-1 overflow-x-auto pb-0.5 -mx-1 px-1">
           {dataYears.map(y => (
-            <button key={y} onClick={() => { setYear(y); setOpenMonth(null); }}
+            <button key={y} onClick={() => setYear(y)}
               className={`flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${
                 y === year ? 'bg-indigo-600 text-white' : 'bg-surface2 text-muted hover:text-content'
               }`}>
@@ -242,93 +237,37 @@ function FundTrack({ group, members, mode }: {
         </div>
       )}
 
-      {/* Month ticks — 2 rows on mobile, one on desktop */}
-      <div className="grid grid-cols-6 sm:grid-cols-12 gap-1.5">
-        {cells.map(c => {
-          const paid = c.lots.length > 0;
-          const selected = openMonth === c.month;
-          return (
-            <button
-              key={c.month}
-              disabled={!paid}
-              onClick={() => setOpenMonth(selected ? null : c.month)}
-              title={paid ? `${MONTH_FULL[c.month]} — ${formatCurrency(c.invested)}` : MONTH_FULL[c.month]}
-              style={!selected && c.hasInitial && c.hasRegular
-                ? { background: 'linear-gradient(135deg, rgb(245 158 11 / 0.22) 50%, rgb(16 185 129 / 0.22) 50%)' }
-                : undefined}
-              className={`rounded-lg py-1.5 flex flex-col items-center gap-0.5 transition-colors ${
-                selected ? 'bg-indigo-600 text-white'
-                : c.hasInitial && c.hasRegular ? 'text-success'
-                : paid ? (c.hasInitial ? 'bg-amber-500/15 text-warn' : 'bg-emerald-500/15 text-success')
-                : c.missed ? 'bg-red-500/10 text-danger'
-                : c.projected ? 'border border-dashed border-edge text-faint'
-                : c.future ? 'bg-surface2 text-faint opacity-50'
-                : 'bg-surface2 text-faint'
-              }`}
-            >
-              <span className="text-xs font-medium">{MONTHS[c.month]}</span>
-              {paid
-                ? <Check size={13} strokeWidth={3} />
-                : c.missed
-                  ? <AlertTriangle size={11} />
-                  : c.projected && sipDay
-                    ? <span className="text-[9px] leading-none tabular-nums">{sipDay}</span>
-                    : <span className="w-1 h-1 rounded-full bg-current opacity-40" />}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Detail — the tapped month, or every paid month when expanded */}
-      {(() => {
-        const shown = showAll ? cells.filter(c => c.lots.length > 0) : open ? [open] : [];
-        if (shown.length === 0) return null;
-        return (
-          <div className="bg-surface2 rounded-xl p-3 space-y-2">
-            {shown.map(c => (
-              <div key={c.month} className="space-y-1">
-                <p className="text-faint text-xs font-semibold uppercase tracking-wide">
-                  {MONTH_FULL[c.month]} {year}
-                </p>
-                {c.lots.map(l => (
-                  <div key={l.id} className="flex items-center justify-between gap-2 text-xs">
-                    <span className="text-muted">
-                      {formatDate(l.dateOfPurchase)}
-                      {l.isInitialPayment && (
-                        <span className="ml-1.5 bg-amber-500/15 text-warn px-1.5 py-0.5 rounded">Initial</span>
-                      )}
-                    </span>
-                    <span className="text-content font-medium">
-                      {formatCurrency(l.quantity * l.purchasePrice)}
-                      <span className="text-faint ml-1.5">{l.quantity.toFixed(3)} @ ₹{l.purchasePrice.toFixed(2)}</span>
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-        );
-      })()}
-
-      {done > 0 && (
-        <button onClick={() => { setShowAll(v => !v); setOpenMonth(null); }}
-          className="text-accent text-xs hover:underline">
-          {showAll ? 'Hide details' : `Show all ${done} instalment${done !== 1 ? 's' : ''} in ${year}`}
-        </button>
-      )}
-
-      {/* Legend — only where it earns its space */}
-      {cells.some(c => c.projected || c.missed) && (
-        <div className="flex items-center gap-3 flex-wrap text-xs text-faint">
-          <span className="flex items-center gap-1"><Check size={10} strokeWidth={3} className="text-success" /> paid</span>
-          {cells.some(c => c.missed) && (
-            <span className="flex items-center gap-1"><AlertTriangle size={10} className="text-danger" /> missed</span>
-          )}
+      {/* Instalments in the selected year — the grid lives in the All years view */}
+      {done === 0 ? (
+        <p className="text-faint text-xs py-2">
+          No instalments in {year}.
           {cells.some(c => c.projected) && (
-            <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded border border-dashed border-edge" /> scheduled {sipDay ? ordinal(sipDay) : ''}
-            </span>
+            <> {cells.filter(c => c.projected).length} scheduled on the {sipDay ? ordinal(sipDay) : ''}.</>
           )}
+        </p>
+      ) : (
+        <div className="bg-surface2 rounded-xl p-3 space-y-2">
+          {cells.filter(c => c.lots.length > 0).map(c => (
+            <div key={c.month} className="space-y-1">
+              <p className="text-faint text-xs font-semibold uppercase tracking-wide">
+                {MONTH_FULL[c.month]} {year}
+              </p>
+              {c.lots.map(l => (
+                <div key={l.id} className="flex items-center justify-between gap-2 text-xs">
+                  <span className="text-muted">
+                    {formatDate(l.dateOfPurchase)}
+                    {l.isInitialPayment && (
+                      <span className="ml-1.5 bg-amber-500/15 text-warn px-1.5 py-0.5 rounded">Initial</span>
+                    )}
+                  </span>
+                  <span className="text-content font-medium">
+                    {formatCurrency(l.quantity * l.purchasePrice)}
+                    <span className="text-faint ml-1.5">{l.quantity.toFixed(3)} @ ₹{l.purchasePrice.toFixed(2)}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          ))}
         </div>
       )}
       </>
@@ -376,6 +315,15 @@ function AllYears({ firstYear, computeCells, sipDay, onPickYear }: {
     : c.projected ? 'bg-transparent border border-dashed border-edge'
     : 'bg-surface3';
 
+  // The day(s) money actually moved, shown inside the cell. Where a month holds both an
+  // initial payment and an instalment, the instalment day is the meaningful one.
+  const dayLabel = (c: MonthCell): string | null => {
+    if (c.lots.length === 0) return null;
+    const regular = c.lots.filter(l => !l.isInitialPayment);
+    const pick = (regular.length ? regular : c.lots)[0];
+    return String(Number(pick.dateOfPurchase.slice(8, 10)));
+  };
+
   return (
     <div className="space-y-2">
       {/* Month header */}
@@ -399,10 +347,17 @@ function AllYears({ firstYear, computeCells, sipDay, onPickYear }: {
               className="w-full grid grid-cols-[2.25rem_1fr] gap-2 items-center rounded-lg py-0.5 hover:bg-surface2 transition-colors">
               <span className={`text-[11px] tabular-nums text-left ${paid ? 'text-content font-medium' : 'text-faint'}`}>{y}</span>
               <div className="grid grid-cols-12 gap-1">
-                {cells.map(c => (
-                  <span key={c.month} className={`h-3 rounded-sm ${dot(c)}`}
-                    style={c.hasInitial && c.hasRegular ? { background: BOTH } : undefined} />
-                ))}
+                {cells.map(c => {
+                  const day = dayLabel(c);
+                  return (
+                    <span key={c.month}
+                      title={day ? `${day} ${MONTH_FULL[c.month]} ${y} — ${formatCurrency(c.invested)}` : undefined}
+                      className={`h-4 rounded-sm flex items-center justify-center text-[9px] font-bold leading-none tabular-nums text-slate-900/80 ${dot(c)}`}
+                      style={c.hasInitial && c.hasRegular ? { background: BOTH } : undefined}>
+                      {day}
+                    </span>
+                  );
+                })}
               </div>
             </button>
           );

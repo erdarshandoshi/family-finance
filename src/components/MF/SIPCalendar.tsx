@@ -3,8 +3,6 @@ import { ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
 import { formatCurrency } from '../../utils/helpers';
 import type { MutualFund } from '../../types';
 
-const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-
 function ymOf(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
@@ -22,7 +20,6 @@ export default function SIPCalendar({ mfs }: { mfs: MutualFund[] }) {
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   const ym = ymOf(cursor);
-  const todayIso = new Date().toISOString().slice(0, 10);
 
   // Lots falling in the displayed month, grouped by day-of-month
   const { monthLots, byDay, monthTotal } = useMemo(() => {
@@ -38,9 +35,6 @@ export default function SIPCalendar({ mfs }: { mfs: MutualFund[] }) {
     const total = lots.reduce((s, l) => s + l.quantity * l.purchasePrice, 0);
     return { monthLots: lots, byDay: map, monthTotal: total };
   }, [mfs, ym]);
-
-  const firstWeekday = new Date(cursor.getFullYear(), cursor.getMonth(), 1).getDay();
-  const daysInMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
 
   const shiftMonth = (delta: number) => {
     setSelectedDay(null);
@@ -76,60 +70,28 @@ export default function SIPCalendar({ mfs }: { mfs: MutualFund[] }) {
           </button>
         </div>
 
-        {/* Weekday header */}
-        <div className="grid grid-cols-7 gap-1 mb-1">
-          {WEEKDAYS.map((d, i) => (
-            <div key={i} className="text-center text-faint text-xs font-medium py-1">{d}</div>
-          ))}
-        </div>
-
-        {/* Day grid */}
-        <div className="grid grid-cols-7 gap-1">
-          {Array.from({ length: firstWeekday }).map((_, i) => <div key={`b${i}`} />)}
-          {Array.from({ length: daysInMonth }).map((_, i) => {
-            const day = i + 1;
-            const iso = `${ym}-${String(day).padStart(2, '0')}`;
-            const lots = byDay.get(day);
-            const hasInitial = lots?.some(l => l.isInitialPayment);
-            const isToday = iso === todayIso;
-            const isSelected = selectedDay === iso;
-
-            return (
-              <button
-                key={day}
-                disabled={!lots}
-                onClick={() => setSelectedDay(isSelected ? null : iso)}
-                className={`aspect-square rounded-lg flex flex-col items-center justify-center gap-0.5 text-xs transition-colors ${
-                  isSelected ? 'bg-indigo-600 text-white'
-                  : lots ? 'bg-indigo-500/10 text-content hover:bg-indigo-500/20'
-                  : 'text-faint'
-                } ${isToday && !isSelected ? 'ring-1 ring-inset ring-indigo-500/60' : ''}`}
-              >
-                <span className={lots ? 'font-semibold' : ''}>{day}</span>
-                {lots && (
-                  <span className="flex items-center gap-0.5">
-                    <span className={`w-1.5 h-1.5 rounded-full ${
-                      isSelected ? 'bg-white' : hasInitial ? 'bg-amber-400' : 'bg-indigo-400'
-                    }`} />
-                    {lots.length > 1 && (
-                      <span className={`text-[9px] ${isSelected ? 'text-white' : 'text-faint'}`}>{lots.length}</span>
-                    )}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Legend */}
-        <div className="flex items-center gap-4 mt-3 pt-3 border-t border-edge">
-          <span className="flex items-center gap-1.5 text-faint text-xs">
-            <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" /> Instalment
-          </span>
-          <span className="flex items-center gap-1.5 text-faint text-xs">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> Initial payment
-          </span>
-        </div>
+        {/* Days in this month that had a purchase — chips instead of a full grid */}
+        {monthLots.length > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap pt-3 border-t border-edge">
+            {[...byDay.keys()].sort((a, b) => a - b).map(day => {
+              const lots = byDay.get(day)!;
+              const iso = `${ym}-${String(day).padStart(2, '0')}`;
+              const isSelected = selectedDay === iso;
+              const hasInitial = lots.some(l => l.isInitialPayment);
+              return (
+                <button key={day} onClick={() => setSelectedDay(isSelected ? null : iso)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                    isSelected ? 'bg-indigo-600 text-white'
+                    : hasInitial ? 'bg-amber-500/15 text-warn hover:bg-amber-500/25'
+                    : 'bg-emerald-500/15 text-success hover:bg-emerald-500/25'
+                  }`}>
+                  {day} {new Date(iso).toLocaleDateString('en-IN', { month: 'short' })}
+                  {lots.length > 1 && <span className="opacity-70"> ·{lots.length}</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Day / month detail */}
