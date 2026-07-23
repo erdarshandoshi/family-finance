@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Check, ChevronLeft, ChevronRight, AlertTriangle, Repeat, CalendarClock } from 'lucide-react';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 import type { MutualFund, FamilyMember } from '../../types';
@@ -31,6 +31,7 @@ interface MonthCell {
  */
 export default function SIPTracker({ groups, members }: { groups: MFGroup[]; members: FamilyMember[] }) {
   const sipGroups = groups.filter(g => g.isSIP);
+  const [mode, setMode] = useState<'year' | 'all'>('year');
 
   if (sipGroups.length === 0) {
     return (
@@ -66,12 +67,26 @@ export default function SIPTracker({ groups, members }: { groups: MFGroup[]; mem
         ))}
       </div>
 
-      {sipGroups.map(g => <FundTrack key={g.key} group={g} members={members} />)}
+      {/* One year in detail, or every year at a glance */}
+      <div className="flex items-center gap-1 bg-surface2 rounded-xl p-1 w-fit">
+        {([['year', 'Year'], ['all', `All years → ${LAST_YEAR}`]] as const).map(([m, label]) => (
+          <button key={m} onClick={() => setMode(m)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              mode === m ? 'bg-indigo-600 text-white' : 'text-muted hover:text-content'
+            }`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {sipGroups.map(g => <FundTrack key={g.key} group={g} members={members} mode={mode} />)}
     </div>
   );
 }
 
-function FundTrack({ group, members }: { group: MFGroup; members: FamilyMember[] }) {
+function FundTrack({ group, members, mode }: {
+  group: MFGroup; members: FamilyMember[]; mode: 'year' | 'all';
+}) {
   const lots = useMemo(
     () => [...group.lots].sort((a, b) => a.dateOfPurchase.localeCompare(b.dateOfPurchase)),
     [group.lots],
@@ -102,13 +117,13 @@ function FundTrack({ group, members }: { group: MFGroup; members: FamilyMember[]
     return best;
   }, [lots]);
 
-  const cells: MonthCell[] = useMemo(() => {
-    const inYear = lots.filter(l => l.dateOfPurchase.startsWith(String(year)));
+  const computeCells = useCallback((y: number): MonthCell[] => {
+    const inYear = lots.filter(l => l.dateOfPurchase.startsWith(String(y)));
     const monthsWith = new Set(inYear.map(l => Number(l.dateOfPurchase.slice(5, 7)) - 1));
     const firstIdx = monthsWith.size ? Math.min(...monthsWith) : -1;
     // The run stays "active" to today (or year end for past years)
-    const lastActive = year < now.getFullYear() ? 11
-      : year > now.getFullYear() ? -1
+    const lastActive = y < now.getFullYear() ? 11
+      : y > now.getFullYear() ? -1
       : now.getMonth();
 
     // Once a rhythm is established, every later month is expected until the SIP stops
@@ -116,9 +131,9 @@ function FundTrack({ group, members }: { group: MFGroup; members: FamilyMember[]
 
     return Array.from({ length: 12 }, (_, m) => {
       const monthLots = inYear.filter(l => Number(l.dateOfPurchase.slice(5, 7)) - 1 === m);
-      const future = year > now.getFullYear() || (year === now.getFullYear() && m > now.getMonth());
+      const future = y > now.getFullYear() || (y === now.getFullYear() && m > now.getMonth());
       const afterStart = !!started
-        && (year > started.getFullYear() || (year === started.getFullYear() && m >= started.getMonth()));
+        && (y > started.getFullYear() || (y === started.getFullYear() && m >= started.getMonth()));
       return {
         month: m,
         lots: monthLots,
@@ -129,7 +144,11 @@ function FundTrack({ group, members }: { group: MFGroup; members: FamilyMember[]
         projected: monthLots.length === 0 && future && afterStart && sipDay != null,
       };
     });
-  }, [lots, year, now, sipDay]);
+    // `now` is stable enough for a render pass
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lots, sipDay]);
+
+  const cells = useMemo(() => computeCells(year), [computeCells, year]);
 
   const yearLots = lots.filter(l => l.dateOfPurchase.startsWith(String(year)));
   const done = cells.filter(c => c.lots.length > 0).length;
@@ -146,6 +165,8 @@ function FundTrack({ group, members }: { group: MFGroup; members: FamilyMember[]
   }, [sipDay, latest, now]);
 
   const open = openMonth != null ? cells[openMonth] : null;
+  // Collapsed by default — expanding every month would bury the grid it summarises
+  const [showAll, setShowAll] = useState(false);
 
   return (
     <div className="bg-surface border border-edge rounded-2xl shadow-card p-4 space-y-3">
@@ -171,6 +192,13 @@ function FundTrack({ group, members }: { group: MFGroup; members: FamilyMember[]
         </div>
       </div>
 
+      {mode === 'all' ? (
+        <AllYears
+          firstYear={firstYear} computeCells={computeCells} sipDay={sipDay}
+          onPickYear={y => { setYear(y); setOpenMonth(null); }}
+        />
+      ) : (
+      <>
       {/* Year strip — browsable all the way to 2045, not just years with data */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1">
@@ -245,27 +273,42 @@ function FundTrack({ group, members }: { group: MFGroup; members: FamilyMember[]
         })}
       </div>
 
-      {/* Tapped month detail */}
-      {open && open.lots.length > 0 && (
-        <div className="bg-surface2 rounded-xl p-3 space-y-1.5">
-          <p className="text-faint text-xs font-semibold uppercase tracking-wide">
-            {MONTH_FULL[open.month]} {year}
-          </p>
-          {open.lots.map(l => (
-            <div key={l.id} className="flex items-center justify-between gap-2 text-xs">
-              <span className="text-muted">
-                {formatDate(l.dateOfPurchase)}
-                {l.isInitialPayment && (
-                  <span className="ml-1.5 bg-amber-500/15 text-warn px-1.5 py-0.5 rounded">Initial</span>
-                )}
-              </span>
-              <span className="text-content font-medium">
-                {formatCurrency(l.quantity * l.purchasePrice)}
-                <span className="text-faint ml-1.5">{l.quantity.toFixed(3)} @ ₹{l.purchasePrice.toFixed(2)}</span>
-              </span>
-            </div>
-          ))}
-        </div>
+      {/* Detail — the tapped month, or every paid month when expanded */}
+      {(() => {
+        const shown = showAll ? cells.filter(c => c.lots.length > 0) : open ? [open] : [];
+        if (shown.length === 0) return null;
+        return (
+          <div className="bg-surface2 rounded-xl p-3 space-y-2">
+            {shown.map(c => (
+              <div key={c.month} className="space-y-1">
+                <p className="text-faint text-xs font-semibold uppercase tracking-wide">
+                  {MONTH_FULL[c.month]} {year}
+                </p>
+                {c.lots.map(l => (
+                  <div key={l.id} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="text-muted">
+                      {formatDate(l.dateOfPurchase)}
+                      {l.isInitialPayment && (
+                        <span className="ml-1.5 bg-amber-500/15 text-warn px-1.5 py-0.5 rounded">Initial</span>
+                      )}
+                    </span>
+                    <span className="text-content font-medium">
+                      {formatCurrency(l.quantity * l.purchasePrice)}
+                      <span className="text-faint ml-1.5">{l.quantity.toFixed(3)} @ ₹{l.purchasePrice.toFixed(2)}</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
+      {done > 0 && (
+        <button onClick={() => { setShowAll(v => !v); setOpenMonth(null); }}
+          className="text-accent text-xs hover:underline">
+          {showAll ? 'Hide details' : `Show all ${done} instalment${done !== 1 ? 's' : ''} in ${year}`}
+        </button>
       )}
 
       {/* Legend — only where it earns its space */}
@@ -282,15 +325,85 @@ function FundTrack({ group, members }: { group: MFGroup; members: FamilyMember[]
           )}
         </div>
       )}
+      </>
+      )}
 
       {/* Footer totals */}
       <div className="flex items-center justify-between gap-2 pt-2 border-t border-edge text-xs">
         <span className="text-faint">
-          {year}: <span className="text-content font-medium">{formatCurrency(yearLots.reduce((s, l) => s + l.quantity * l.purchasePrice, 0))}</span>
+          {mode === 'all'
+            ? <>Total: <span className="text-content font-medium">{formatCurrency(lots.reduce((s, l) => s + l.quantity * l.purchasePrice, 0))}</span></>
+            : <>{year}: <span className="text-content font-medium">{formatCurrency(yearLots.reduce((s, l) => s + l.quantity * l.purchasePrice, 0))}</span></>}
         </span>
         {nextDue
           ? <span className="text-muted flex items-center gap-1"><CalendarClock size={12} /> next {formatDate(nextDue.toISOString().slice(0, 10))}</span>
           : latest && <span className="text-faint">last {formatDate(latest.dateOfPurchase)}</span>}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Every year from the first instalment to 2045 as one row each — the whole run of a SIP
+ * without paging. Tap a year to open it in the detailed view.
+ */
+function AllYears({ firstYear, computeCells, sipDay, onPickYear }: {
+  firstYear: number;
+  computeCells: (y: number) => MonthCell[];
+  sipDay: number | null;
+  onPickYear: (y: number) => void;
+}) {
+  const rows = useMemo(() => {
+    const out: { year: number; cells: MonthCell[] }[] = [];
+    for (let y = firstYear; y <= LAST_YEAR; y++) out.push({ year: y, cells: computeCells(y) });
+    return out;
+  }, [firstYear, computeCells]);
+
+  const dot = (c: MonthCell) =>
+    c.lots.length > 0 ? (c.hasInitial ? 'bg-amber-400' : 'bg-emerald-400')
+    : c.missed ? 'bg-red-400'
+    : c.projected ? 'bg-transparent border border-dashed border-edge'
+    : 'bg-surface3';
+
+  return (
+    <div className="space-y-2">
+      {/* Month header */}
+      <div className="grid grid-cols-[2.25rem_1fr] gap-2 items-center">
+        <span />
+        <div className="grid grid-cols-12 gap-1">
+          {MONTHS.map((m, i) => (
+            <span key={i} className="text-faint text-[10px] text-center leading-none">{m}</span>
+          ))}
+        </div>
+      </div>
+
+      {/* One row per year — scrolls rather than paging */}
+      <div className="max-h-72 overflow-y-auto space-y-1 -mx-1 px-1">
+        {rows.map(({ year: y, cells }) => {
+          const paid = cells.filter(c => c.lots.length > 0).length;
+          const total = cells.reduce((s, c) => s + c.invested, 0);
+          return (
+            <button key={y} onClick={() => onPickYear(y)}
+              title={paid ? `${y} — ${paid} paid · ${formatCurrency(total)}` : `${y} — scheduled`}
+              className="w-full grid grid-cols-[2.25rem_1fr] gap-2 items-center rounded-lg py-0.5 hover:bg-surface2 transition-colors">
+              <span className={`text-[11px] tabular-nums text-left ${paid ? 'text-content font-medium' : 'text-faint'}`}>{y}</span>
+              <div className="grid grid-cols-12 gap-1">
+                {cells.map(c => (
+                  <span key={c.month} className={`h-3 rounded-sm ${dot(c)}`} />
+                ))}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex items-center gap-3 flex-wrap text-xs text-faint pt-1">
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-400" /> paid</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-amber-400" /> initial</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-red-400" /> missed</span>
+        <span className="flex items-center gap-1">
+          <span className="w-2.5 h-2.5 rounded-sm border border-dashed border-edge" /> scheduled {sipDay ? ordinal(sipDay) : ''}
+        </span>
       </div>
     </div>
   );
