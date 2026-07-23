@@ -90,6 +90,19 @@ notification `title`/`body`. Drop `?dry=1` to actually send.
 If nothing is due, that's usually correct — a SIP only fires on the exact lead day, and
 not at all if it has already been debited this month.
 
+**Prove delivery today.** A dry run never touches the VAPID keys, and a real send only
+happens when a SIP falls due, so this sends a test notification to every subscribed
+device right now — the only way to confirm the private key, subject, service worker and
+phone all work before relying on it:
+
+```bash
+curl -s -H "Authorization: Bearer $CRON_SECRET" \
+  "https://<your-domain>/api/notify-sips?test=1"
+```
+
+Expect `"sent": 1` and a notification on the phone. `"subscriptions": 0` means no device
+has enrolled yet — turn reminders on in the app first.
+
 ## Notes
 
 - **No Firestore rule changes.** Subscriptions are written by the server via the Admin

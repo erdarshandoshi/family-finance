@@ -106,6 +106,9 @@ export default async function handler(req, res) {
   }
 
   const dry = String(req.query?.dry || '') === '1';
+  // Real SIPs are only due on their own day, so without this the whole chain — private
+  // key, subject, service worker, device — can't be proven until one falls due.
+  const test = String(req.query?.test || '') === '1';
 
   let db;
   try { db = getDb(); } catch (e) {
@@ -146,9 +149,16 @@ export default async function handler(req, res) {
   for (const sub of subs) {
     const leadDays = Number.isFinite(Number(sub.leadDays)) ? Number(sub.leadDays) : 2;
     const due = dueOn(groups, leadDays);
-    if (due.length === 0) { report.push({ id: sub.id, leadDays, due: 0 }); continue; }
+    if (due.length === 0 && !test) { report.push({ id: sub.id, leadDays, due: 0 }); continue; }
 
-    const payload = buildMessage(due, leadDays);
+    const payload = test
+      ? {
+          title: 'Test — SIP reminders are working',
+          body: `You'll be notified ${leadDays} day${leadDays !== 1 ? 's' : ''} before each debit.`,
+          url: '/mf',
+          tag: 'sip-test',
+        }
+      : buildMessage(due, leadDays);
     report.push({ id: sub.id, leadDays, due: due.length, title: payload.title, body: payload.body });
     if (dry) continue;
 
@@ -170,7 +180,7 @@ export default async function handler(req, res) {
   }
 
   return res.status(200).json({
-    ok: true, dry, today: isoOf(istParts(0)),
+    ok: true, dry, test, today: isoOf(istParts(0)),
     sipGroups: groups.length, subscriptions: subs.length, sent, cleaned, report,
   });
 }
