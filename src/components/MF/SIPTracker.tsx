@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Repeat, CalendarClock } from 'lucide-react';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 import type { MutualFund, FamilyMember } from '../../types';
 import type { MFGroup } from '../../utils/mfUtils';
+import SIPReminders from './SIPReminders';
 
 const MONTHS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
 const MONTH_FULL = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -67,6 +68,8 @@ export default function SIPTracker({ groups, members }: { groups: MFGroup[]; mem
           </div>
         ))}
       </div>
+
+      <SIPReminders />
 
       {/* One year in detail, or every year at a glance */}
       <div className="flex items-center gap-1 bg-surface2 rounded-xl p-1 w-fit">
