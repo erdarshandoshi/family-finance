@@ -120,6 +120,17 @@ function detectAmc(text, schemeRaw) {
   return brand ? `${brand.charAt(0).toUpperCase()}${brand.slice(1)} Mutual Fund` : 'Mutual Fund';
 }
 
+// Cancellations, rejections and failures carry a folio, date and amount too, so they
+// would otherwise parse as a purchase and add a holding for a SIP that was stopped.
+const NEGATIVE_SUBJECT = /\b(cancell?ation|cancell?ed|ceas(?:e|ed)|discontinu\w*|reject\w*|fail\w*|revers\w*|refund\w*|stopp?ed|unsuccessful)\b/i;
+const NEGATIVE_PHRASE = /\b(?:cancellation of|has been cancell?ed|request for cancellation|could not be processed|not been processed|transaction (?:failed|rejected))\b/i;
+
+export function isNonPurchaseNotice(text) {
+  const s = String(text || '');
+  const firstLine = s.split(/\r?\n/)[0] || '';
+  return NEGATIVE_SUBJECT.test(firstLine) || NEGATIVE_PHRASE.test(s);
+}
+
 export function isMaskedFolio(folio) {
   return /[x*]/i.test(String(folio || ''));
 }
@@ -210,6 +221,7 @@ function extractFields(text) {
 
 export function parseSipEmail(text) {
   if (!text || !text.trim()) return null;
+  if (isNonPurchaseNotice(text)) return null;   // never read a cancellation as a purchase
   const f = extractFields(text);
   if (f.missing.length) return null;
   delete f.missing;
@@ -299,6 +311,14 @@ export default async function handler(req, res) {
   let body = req.body;
   if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
   const text = [body?.subject, body?.body].filter(Boolean).join('\n');
+
+  // Never turn a cancellation/rejection into a holding
+  if (isNonPurchaseNotice(text)) {
+    return res.status(422).json({
+      error: 'Ignored — not a purchase (cancellation/rejection/failure notice)',
+      subject: body?.subject || null,
+    });
+  }
 
   const parsed = parseSipEmail(text);
   if (!parsed) {

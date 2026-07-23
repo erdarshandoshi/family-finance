@@ -129,6 +129,17 @@ function detectOption(s: string): string | undefined {
   return undefined;
 }
 
+// Cancellations, rejections and failures carry a folio, date and amount too, so they
+// would otherwise parse as a purchase and add a holding for a SIP that was stopped.
+const NEGATIVE_SUBJECT = /\b(cancell?ation|cancell?ed|ceas(?:e|ed)|discontinu\w*|reject\w*|fail\w*|revers\w*|refund\w*|stopp?ed|unsuccessful)\b/i;
+const NEGATIVE_PHRASE = /\b(?:cancellation of|has been cancell?ed|request for cancellation|could not be processed|not been processed|transaction (?:failed|rejected))\b/i;
+
+/** True for mail that reports something other than a completed purchase. */
+export function isNonPurchaseNotice(text: string): boolean {
+  const firstLine = (text ?? '').split(/\r?\n/)[0] ?? '';
+  return NEGATIVE_SUBJECT.test(firstLine) || NEGATIVE_PHRASE.test(text ?? '');
+}
+
 /** True when a folio is partly masked, e.g. "XXXXXXXX4331". */
 export function isMaskedFolio(folio: string): boolean {
   return /[x*]/i.test(folio);
@@ -154,6 +165,7 @@ export function folioMatches(stored: string, parsed: string): boolean {
 
 export function parseSipEmail(text: string): ParsedSip | null {
   if (!text || !text.trim()) return null;
+  if (isNonPurchaseNotice(text)) return null;
   const flat = text.replace(/\s+/g, ' ');
 
   // ── Folio (may be masked) ──────────────────────────────────────────────────
