@@ -20,6 +20,7 @@ interface MonthCell {
   lots: MutualFund[];
   invested: number;
   hasInitial: boolean;
+  hasRegular: boolean;   // a month can hold both — the initial payment and an instalment
   missed: boolean;      // inside the active run but nothing landed
   future: boolean;
   projected: boolean;   // no instalment yet, but one is expected on the usual day
@@ -139,6 +140,7 @@ function FundTrack({ group, members, mode }: {
         lots: monthLots,
         invested: monthLots.reduce((s, l) => s + l.quantity * l.purchasePrice, 0),
         hasInitial: monthLots.some(l => l.isInitialPayment),
+        hasRegular: monthLots.some(l => !l.isInitialPayment),
         missed: monthLots.length === 0 && firstIdx !== -1 && m > firstIdx && m <= lastActive,
         future,
         projected: monthLots.length === 0 && future && afterStart && sipDay != null,
@@ -251,8 +253,12 @@ function FundTrack({ group, members, mode }: {
               disabled={!paid}
               onClick={() => setOpenMonth(selected ? null : c.month)}
               title={paid ? `${MONTH_FULL[c.month]} — ${formatCurrency(c.invested)}` : MONTH_FULL[c.month]}
+              style={!selected && c.hasInitial && c.hasRegular
+                ? { background: 'linear-gradient(135deg, rgb(245 158 11 / 0.22) 50%, rgb(16 185 129 / 0.22) 50%)' }
+                : undefined}
               className={`rounded-lg py-1.5 flex flex-col items-center gap-0.5 transition-colors ${
                 selected ? 'bg-indigo-600 text-white'
+                : c.hasInitial && c.hasRegular ? 'text-success'
                 : paid ? (c.hasInitial ? 'bg-amber-500/15 text-warn' : 'bg-emerald-500/15 text-success')
                 : c.missed ? 'bg-red-500/10 text-danger'
                 : c.projected ? 'border border-dashed border-edge text-faint'
@@ -359,8 +365,13 @@ function AllYears({ firstYear, computeCells, sipDay, onPickYear }: {
     return out;
   }, [firstYear, computeCells]);
 
+  // A month holding both the initial payment and an instalment is split, rather than
+  // letting one colour hide the other.
+  const BOTH = 'linear-gradient(135deg, rgb(251 191 36) 50%, rgb(52 211 153) 50%)';
   const dot = (c: MonthCell) =>
-    c.lots.length > 0 ? (c.hasInitial ? 'bg-amber-400' : 'bg-emerald-400')
+    c.hasInitial && c.hasRegular ? ''
+    : c.hasInitial ? 'bg-amber-400'
+    : c.hasRegular ? 'bg-emerald-400'
     : c.missed ? 'bg-red-400'
     : c.projected ? 'bg-transparent border border-dashed border-edge'
     : 'bg-surface3';
@@ -389,7 +400,8 @@ function AllYears({ firstYear, computeCells, sipDay, onPickYear }: {
               <span className={`text-[11px] tabular-nums text-left ${paid ? 'text-content font-medium' : 'text-faint'}`}>{y}</span>
               <div className="grid grid-cols-12 gap-1">
                 {cells.map(c => (
-                  <span key={c.month} className={`h-3 rounded-sm ${dot(c)}`} />
+                  <span key={c.month} className={`h-3 rounded-sm ${dot(c)}`}
+                    style={c.hasInitial && c.hasRegular ? { background: BOTH } : undefined} />
                 ))}
               </div>
             </button>
@@ -400,6 +412,7 @@ function AllYears({ firstYear, computeCells, sipDay, onPickYear }: {
       <div className="flex items-center gap-3 flex-wrap text-xs text-faint pt-1">
         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-400" /> paid</span>
         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-amber-400" /> initial</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: BOTH }} /> both</span>
         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-red-400" /> missed</span>
         <span className="flex items-center gap-1">
           <span className="w-2.5 h-2.5 rounded-sm border border-dashed border-edge" /> scheduled {sipDay ? ordinal(sipDay) : ''}
