@@ -36,11 +36,14 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pendingCount = data.pendingTransactions?.length ?? 0;
 
   return (
-    <aside className={`
+    <aside
+      aria-hidden={!isOpen}
+      className={`
       fixed lg:relative inset-y-0 left-0 z-50
       w-64 flex-shrink-0 bg-surface border-r border-edge flex flex-col
       transition-transform duration-300 ease-in-out
       ${isOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0
+      ${isOpen ? 'pointer-events-auto' : 'pointer-events-none'} lg:pointer-events-auto
     `}>
       {/* Header */}
       <div className="p-5 border-b border-edge flex items-center justify-between">
