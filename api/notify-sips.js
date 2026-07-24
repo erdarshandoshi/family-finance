@@ -149,9 +149,13 @@ export default async function handler(req, res) {
   }
 
   const dry = String(req.query?.dry || '') === '1';
-  // Real reminders only fire on their own day, so ?test=1 proves the whole chain — private
-  // key, subject, service worker, device — without waiting for one to fall due.
-  const test = String(req.query?.test || '') === '1';
+  // Real reminders only fire on their own day, so ?test=… sends a sample immediately —
+  // proving the whole chain without waiting for one to fall due.
+  //   ?test=1    generic "it's working"
+  //   ?test=sip  ?test=fd  ?test=post   one realistic sample of that type
+  //   ?test=all  one of each
+  const testKind = String(req.query?.test || '').toLowerCase();
+  const test = testKind !== '';
 
   let db;
   try { db = getDb(); } catch (e) {
@@ -197,7 +201,21 @@ export default async function handler(req, res) {
     // One notification per category that has something due
     const payloads = [];
     if (test) {
-      payloads.push({ title: 'Test — reminders are working', body: 'Your notifications are set up correctly.', url: '/notifications', tag: 'test' });
+      // Realistic samples using this device's lead times; distinct tags so they coexist
+      const samples = {
+        sip:  buildMsg('sip',  [{ name: 'HDFC Mid Cap Fund', amount: 10000 }], prefs.sip?.leadDays ?? 2,  'test'),
+        fd:   buildMsg('fd',   [{ name: 'HDFC Bank', amount: 210000 }],         prefs.fd?.leadDays ?? 7,   'test'),
+        post: buildMsg('post', [{ name: 'NSC', amount: 75000 }],                prefs.post?.leadDays ?? 7, 'test'),
+      };
+      if (testKind === '1') {
+        payloads.push({ title: 'Test — reminders are working', body: 'Your notifications are set up correctly.', url: '/notifications', tag: 'test' });
+      } else if (testKind === 'all') {
+        payloads.push(samples.sip, samples.fd, samples.post);
+      } else if (samples[testKind]) {
+        payloads.push(samples[testKind]);
+      } else {
+        payloads.push({ title: 'Test — reminders are working', body: 'Your notifications are set up correctly.', url: '/notifications', tag: 'test' });
+      }
     } else {
       if (prefs.sip?.enabled) {
         const due = dueOn(groups, prefs.sip.leadDays);
@@ -233,7 +251,7 @@ export default async function handler(req, res) {
   }
 
   return res.status(200).json({
-    ok: true, dry, test, today: isoOf(istParts(0)),
+    ok: true, dry, test: test ? testKind : false, today: isoOf(istParts(0)),
     sipGroups: groups.length, fds: fds.length, postSchemes: posts.length,
     subscriptions: subs.length, sent, cleaned, report,
   });
