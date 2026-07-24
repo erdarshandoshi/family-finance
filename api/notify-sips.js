@@ -86,16 +86,59 @@ export function dueOn(groups, leadDays) {
 
 const inr = n => '₹' + Number(n).toLocaleString('en-IN');
 
-export function buildMessage(due, leadDays) {
+// Human lead-time label, so 7/14/30 read as weeks/months rather than "in 30 days".
+export function whenLabel(d) {
+  if (d <= 0) return 'today';
+  if (d === 1) return 'tomorrow';
+  if (d === 30) return 'in 1 month';
+  if (d === 60) return 'in 2 months';
+  if (d === 7) return 'in 1 week';
+  if (d === 14) return 'in 2 weeks';
+  if (d === 21) return 'in 3 weeks';
+  return `in ${d} days`;
+}
+
+const KINDS = {
+  sip:  { one: 'SIP debit',              many: 'SIP debits',              url: '/mf' },
+  fd:   { one: 'FD matures',             many: 'FDs mature',              url: '/fd' },
+  post: { one: 'Post Office matures',    many: 'Post Office schemes mature', url: '/post' },
+};
+
+export function buildMsg(kind, due, leadDays, dateKey) {
+  const k = KINDS[kind];
   const total = due.reduce((s, d) => s + d.amount, 0);
-  const when = leadDays === 0 ? 'today'
-    : leadDays === 1 ? 'tomorrow'
-    : `in ${leadDays} days`;
+  const when = whenLabel(leadDays);
   const title = due.length === 1
-    ? `SIP debit ${when} — ${inr(due[0].amount)}`
-    : `${due.length} SIP debits ${when} — ${inr(total)}`;
-  const body = due.map(d => `${d.schemeName} · ${inr(d.amount)}`).join('\n');
-  return { title, body, url: '/mf', tag: `sip-${due[0].date}` };
+    ? `${k.one} ${when} — ${inr(due[0].amount)}`
+    : `${due.length} ${k.many} ${when} — ${inr(total)}`;
+  const body = due.map(d => `${d.name} · ${inr(d.amount)}`).join('\n');
+  return { title, body, url: k.url, tag: `${kind}-${dateKey}` };
+}
+
+// Kept for the existing test; SIP items expose schemeName, others expose name.
+export function buildMessage(due, leadDays) {
+  return buildMsg('sip', due.map(d => ({ name: d.schemeName ?? d.name, amount: d.amount })), leadDays,
+    due[0]?.date ?? isoOf(istParts(leadDays)));
+}
+
+// FD / Post: maturities landing exactly `leadDays` from today.
+export function dueMaturities(items, leadDays, nameOf, amountOf) {
+  const targetIso = isoOf(istParts(leadDays));
+  return (items || [])
+    .filter(it => it?.maturityDate && String(it.maturityDate).slice(0, 10) === targetIso)
+    .map(it => ({ name: nameOf(it) || '—', amount: Math.round(Number(amountOf(it)) || 0), date: targetIso }));
+}
+
+// Preferences for a subscription. Legacy rows (flat leadDays, no prefs) keep their old
+// SIP-only behaviour so nobody is surprised by FD/Post pushes they never opted into.
+function prefsOf(sub) {
+  if (sub.prefs) return sub.prefs;
+  const lead = Number.isFinite(Number(sub.leadDays)) ? Number(sub.leadDays) : 2;
+  return {
+    sip:  { enabled: true,  leadDays: lead },
+    fd:   { enabled: false, leadDays: 7 },
+    post: { enabled: false, leadDays: 7 },
+  };
 }
 
 // ─── Handler ─────────────────────────────────────────────────────────────────────
@@ -106,8 +149,8 @@ export default async function handler(req, res) {
   }
 
   const dry = String(req.query?.dry || '') === '1';
-  // Real SIPs are only due on their own day, so without this the whole chain — private
-  // key, subject, service worker, device — can't be proven until one falls due.
+  // Real reminders only fire on their own day, so ?test=1 proves the whole chain — private
+  // key, subject, service worker, device — without waiting for one to fall due.
   const test = String(req.query?.test || '') === '1';
 
   let db;
@@ -115,14 +158,16 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Firebase Admin not configured', detail: String(e.message || e) });
   }
 
-  let mfs = [];
+  let data = {};
   try {
     const snap = await db.doc('users/shared-family').get();
-    mfs = (snap.exists && snap.data()?.mfs) || [];
+    data = (snap.exists && snap.data()) || {};
   } catch (e) {
     return res.status(500).json({ error: 'Could not read holdings', detail: String(e.message || e) });
   }
-  const groups = groupSips(mfs);
+  const groups = groupSips(data.mfs || []);
+  const fds = data.fds || [];
+  const posts = data.postInvestments || [];
 
   let subs = [];
   try {
@@ -147,33 +192,41 @@ export default async function handler(req, res) {
   let sent = 0, cleaned = 0;
 
   for (const sub of subs) {
-    const leadDays = Number.isFinite(Number(sub.leadDays)) ? Number(sub.leadDays) : 2;
-    const due = dueOn(groups, leadDays);
-    if (due.length === 0 && !test) { report.push({ id: sub.id, leadDays, due: 0 }); continue; }
+    const prefs = prefsOf(sub);
 
-    const payload = test
-      ? {
-          title: 'Test — SIP reminders are working',
-          body: `You'll be notified ${leadDays} day${leadDays !== 1 ? 's' : ''} before each debit.`,
-          url: '/mf',
-          tag: 'sip-test',
+    // One notification per category that has something due
+    const payloads = [];
+    if (test) {
+      payloads.push({ title: 'Test — reminders are working', body: 'Your notifications are set up correctly.', url: '/notifications', tag: 'test' });
+    } else {
+      if (prefs.sip?.enabled) {
+        const due = dueOn(groups, prefs.sip.leadDays);
+        if (due.length) payloads.push(buildMsg('sip', due.map(d => ({ name: d.schemeName, amount: d.amount })), prefs.sip.leadDays, due[0].date));
+      }
+      if (prefs.fd?.enabled) {
+        const due = dueMaturities(fds, prefs.fd.leadDays, f => f.bankName, f => f.maturityAmount);
+        if (due.length) payloads.push(buildMsg('fd', due, prefs.fd.leadDays, due[0].date));
+      }
+      if (prefs.post?.enabled) {
+        const due = dueMaturities(posts, prefs.post.leadDays, p => p.scheme, p => p.maturityAmount);
+        if (due.length) payloads.push(buildMsg('post', due, prefs.post.leadDays, due[0].date));
+      }
+    }
+
+    report.push({ id: sub.id, prefs, notifications: payloads.map(p => p.title) });
+    if (dry || payloads.length === 0) continue;
+
+    for (const payload of payloads) {
+      try {
+        await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, JSON.stringify(payload));
+        sent++;
+      } catch (e) {
+        // 404/410 mean the browser threw the subscription away — drop it and stop
+        if (e?.statusCode === 404 || e?.statusCode === 410) {
+          await db.collection('pushSubscriptions').doc(sub.id).delete().catch(() => {});
+          cleaned++;
+          break;
         }
-      : buildMessage(due, leadDays);
-    report.push({ id: sub.id, leadDays, due: due.length, title: payload.title, body: payload.body });
-    if (dry) continue;
-
-    try {
-      await webpush.sendNotification(
-        { endpoint: sub.endpoint, keys: sub.keys },
-        JSON.stringify(payload),
-      );
-      sent++;
-    } catch (e) {
-      // 404/410 mean the browser threw the subscription away — stop trying it
-      if (e?.statusCode === 404 || e?.statusCode === 410) {
-        await db.collection('pushSubscriptions').doc(sub.id).delete().catch(() => {});
-        cleaned++;
-      } else {
         report.push({ id: sub.id, error: String(e?.statusCode || e?.message || e) });
       }
     }
@@ -181,6 +234,7 @@ export default async function handler(req, res) {
 
   return res.status(200).json({
     ok: true, dry, test, today: isoOf(istParts(0)),
-    sipGroups: groups.length, subscriptions: subs.length, sent, cleaned, report,
+    sipGroups: groups.length, fds: fds.length, postSchemes: posts.length,
+    subscriptions: subs.length, sent, cleaned, report,
   });
 }

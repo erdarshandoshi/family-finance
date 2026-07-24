@@ -33,6 +33,18 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Firebase Admin not configured', detail: String(e.message || e) });
   }
 
+  // Read this device's stored prefs (page load populates the toggles from here)
+  if (req.method === 'GET') {
+    const endpoint = req.query?.endpoint;
+    if (!endpoint) return res.status(400).json({ error: 'endpoint required' });
+    try {
+      const snap = await db.collection('pushSubscriptions').doc(endpointId(endpoint)).get();
+      return res.status(200).json({ ok: true, prefs: (snap.exists && snap.data()?.prefs) || null });
+    } catch (e) {
+      return res.status(500).json({ error: 'Could not read subscription', detail: String(e.message || e) });
+    }
+  }
+
   let body = req.body;
   if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
 
@@ -54,23 +66,32 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'A complete push subscription is required' });
   }
 
-  const leadDays = Number.isFinite(Number(body?.leadDays)) ? Math.max(0, Math.min(30, Number(body.leadDays))) : 2;
+  const clampLead = n => Math.max(0, Math.min(60, Number(n) || 0));
+  const cleanPrefs = p => {
+    if (!p || typeof p !== 'object') return undefined;
+    const out = {};
+    for (const k of ['sip', 'fd', 'post']) {
+      if (p[k]) out[k] = { enabled: !!p[k].enabled, leadDays: clampLead(p[k].leadDays) };
+    }
+    return Object.keys(out).length ? out : undefined;
+  };
+  const prefs = cleanPrefs(body?.prefs);
   const id = endpointId(sub.endpoint);
 
   const record = body?.partial
-    ? { leadDays, updatedAt: new Date().toISOString() }
+    ? { updatedAt: new Date().toISOString() }
     : {
         endpoint: sub.endpoint,
         keys: sub.keys,
-        leadDays,
         email: body?.email || null,
         userAgent: body?.userAgent || null,
         updatedAt: new Date().toISOString(),
       };
+  if (prefs) record.prefs = prefs;   // never write undefined — Admin SDK rejects it
 
   try {
     await db.collection('pushSubscriptions').doc(id).set(record, { merge: true });
-    return res.status(200).json({ ok: true, id, leadDays });
+    return res.status(200).json({ ok: true, id, prefs: prefs || null });
   } catch (e) {
     return res.status(500).json({ error: 'Could not save subscription', detail: String(e.message || e) });
   }

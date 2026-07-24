@@ -1,6 +1,8 @@
-# SIP push reminders — setup
+# Push reminders — setup
 
-A notification a few days before each SIP is debited, so the balance is ready.
+A notification before money moves: **SIP debits**, **FD maturities** and **Post Office
+maturities**. Each category has its own on/off and lead time (1 day … 1 month), set on the
+**Notifications** page and stored per device.
 
 ```
 Vercel cron (daily 09:00 IST) ──▶ /api/notify-sips
@@ -69,9 +71,10 @@ this needs. Adjust the hour if you'd rather be told at a different time.
 
 ## 4. Turn it on
 
-**Mutual Funds & SIP → SIP Tracker → SIP reminders → Turn on**, then allow notifications.
-Pick a lead time (1/2/3/5/7 days — default 2). It's stored per device, so your phone and
-laptop can differ.
+Open the **Notifications** page (sidebar) → **Turn on**, then allow notifications. Toggle
+each category — SIP debits, FD maturity, Post Office maturity — and pick its lead time
+(1 day / 3 days / 1 week / 2 weeks / 1 month). Stored per device, so your phone and laptop
+can differ.
 
 ---
 

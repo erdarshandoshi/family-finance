@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Landmark, TrendingUp, BarChart3,
   PiggyBank, Briefcase, IndianRupee, X, BarChart2,
   Shield, Package, Users, Building2, BookHeart, KeyRound,
-  Inbox, FolderKey,
+  Inbox, FolderKey, Bell,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 
@@ -22,6 +22,7 @@ const nav = [
   { to: '/nps',            label: 'NPS',               icon: Building2 },
   { to: '/journal',        label: 'Baby Journal',      icon: BookHeart },
   { to: '/vault',          label: 'Password Vault',    icon: KeyRound },
+  { to: '/notifications',  label: 'Notifications',     icon: Bell },
   { to: '/access',         label: 'User Access',       icon: Users },
 ];
 

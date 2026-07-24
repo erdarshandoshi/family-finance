@@ -9,6 +9,17 @@ export type PushState =
   | 'off'
   | 'on';
 
+// What can be reminded about, each with its own on/off and lead time (days before).
+export type NotifyCategory = 'sip' | 'fd' | 'post';
+export interface CategoryPref { enabled: boolean; leadDays: number; }
+export type NotifyPrefs = Record<NotifyCategory, CategoryPref>;
+
+export const DEFAULT_PREFS: NotifyPrefs = {
+  sip:  { enabled: true, leadDays: 2 },   // debits are frequent — a short heads-up
+  fd:   { enabled: true, leadDays: 7 },   // maturities are rare — more notice
+  post: { enabled: true, leadDays: 7 },
+};
+
 /** iOS exposes the Push API only to a Home-Screen ("standalone") install. */
 function isIosSafariTab(): boolean {
   const ua = navigator.userAgent;
@@ -36,6 +47,25 @@ export async function getPushState(): Promise<PushState> {
   }
 }
 
+async function currentSubscription(): Promise<PushSubscription | null> {
+  const reg = await navigator.serviceWorker.getRegistration();
+  return (await reg?.pushManager.getSubscription()) ?? null;
+}
+
+/** Preferences stored server-side for this device's subscription, or null if none. */
+export async function fetchPrefs(): Promise<NotifyPrefs | null> {
+  const sub = await currentSubscription();
+  if (!sub) return null;
+  try {
+    const res = await fetch(`/api/push-subscribe?endpoint=${encodeURIComponent(sub.endpoint)}`);
+    if (!res.ok) return null;
+    const json = await res.json() as { prefs?: NotifyPrefs };
+    return json.prefs ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
   const padding = '='.repeat((4 - (base64.length % 4)) % 4);
   const raw = atob((base64 + padding).replace(/-/g, '+').replace(/_/g, '/'));
@@ -44,8 +74,8 @@ function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
   return out;
 }
 
-/** Ask permission, subscribe, and register the subscription server-side. */
-export async function enablePush(opts: { email: string; leadDays: number }): Promise<PushState> {
+/** Ask permission, subscribe, and register the subscription (with prefs) server-side. */
+export async function enablePush(opts: { email: string; prefs: NotifyPrefs }): Promise<PushState> {
   if (!pushSupported()) return isIosSafariTab() ? 'needs-install' : 'unsupported';
   if (!VAPID_PUBLIC_KEY) throw new Error('VITE_VAPID_PUBLIC_KEY is not set');
 
@@ -67,7 +97,7 @@ export async function enablePush(opts: { email: string; leadDays: number }): Pro
     body: JSON.stringify({
       subscription: sub.toJSON(),
       email: opts.email,
-      leadDays: opts.leadDays,
+      prefs: opts.prefs,
       userAgent: navigator.userAgent.slice(0, 200),
     }),
   });
@@ -77,8 +107,7 @@ export async function enablePush(opts: { email: string; leadDays: number }): Pro
 }
 
 export async function disablePush(): Promise<PushState> {
-  const reg = await navigator.serviceWorker.getRegistration();
-  const sub = await reg?.pushManager.getSubscription();
+  const sub = await currentSubscription();
   if (sub) {
     await fetch('/api/push-subscribe', {
       method: 'DELETE',
@@ -90,14 +119,13 @@ export async function disablePush(): Promise<PushState> {
   return 'off';
 }
 
-/** Update just the lead time for the subscription on this device. */
-export async function updateLeadDays(leadDays: number): Promise<void> {
-  const reg = await navigator.serviceWorker.getRegistration();
-  const sub = await reg?.pushManager.getSubscription();
+/** Update the per-category preferences for this device's subscription. */
+export async function savePrefs(prefs: NotifyPrefs): Promise<void> {
+  const sub = await currentSubscription();
   if (!sub) return;
   await fetch('/api/push-subscribe', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ subscription: sub.toJSON(), leadDays, partial: true }),
+    body: JSON.stringify({ subscription: sub.toJSON(), prefs, partial: true }),
   }).catch(() => {});
 }
