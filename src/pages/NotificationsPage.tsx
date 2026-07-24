@@ -6,14 +6,34 @@ import {
   DEFAULT_PREFS, type PushState, type NotifyPrefs, type NotifyCategory,
 } from '../utils/push';
 
-// Lead-time choices, shared across categories
+// Lead-time choices, shared across categories. Must include every DEFAULT_PREFS value,
+// or that default can't highlight any chip.
 const LEAD_OPTIONS: { days: number; label: string }[] = [
   { days: 1, label: '1 day' },
+  { days: 2, label: '2 days' },
   { days: 3, label: '3 days' },
   { days: 7, label: '1 week' },
   { days: 14, label: '2 weeks' },
   { days: 30, label: '1 month' },
 ];
+
+// Remember the choice on the device so the highlight is stable regardless of push state
+// or a slow/empty server read. The server stays the source of truth for actually sending.
+const LOCAL_KEY = 'ff_notify_prefs';
+
+function loadLocalPrefs(): NotifyPrefs | null {
+  try {
+    const raw = localStorage.getItem(LOCAL_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as Partial<NotifyPrefs>;
+    if (!p || typeof p !== 'object') return null;
+    return { ...DEFAULT_PREFS, ...p };
+  } catch { return null; }
+}
+
+function saveLocalPrefs(p: NotifyPrefs) {
+  try { localStorage.setItem(LOCAL_KEY, JSON.stringify(p)); } catch { /* ignore */ }
+}
 
 const CATEGORIES: { key: NotifyCategory; title: string; desc: string; icon: typeof Bell; color: string }[] = [
   { key: 'sip',  title: 'SIP debits',        desc: 'Before each mutual-fund SIP is debited',  icon: Repeat,   color: 'text-purple-400' },
@@ -24,7 +44,7 @@ const CATEGORIES: { key: NotifyCategory; title: string; desc: string; icon: type
 export default function NotificationsPage() {
   const { user } = useAuth();
   const [state, setState] = useState<PushState | null>(null);
-  const [prefs, setPrefs] = useState<NotifyPrefs>(DEFAULT_PREFS);
+  const [prefs, setPrefs] = useState<NotifyPrefs>(() => loadLocalPrefs() ?? DEFAULT_PREFS);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -33,7 +53,9 @@ export default function NotificationsPage() {
     (async () => {
       const s = await getPushState();
       setState(s);
-      if (s === 'on') {
+      // Local choice already seeded the UI. Only fall back to the server when this device
+      // has never chosen here — never let an empty/older server read wipe the highlight.
+      if (s === 'on' && !loadLocalPrefs()) {
         const stored = await fetchPrefs();
         if (stored) setPrefs({ ...DEFAULT_PREFS, ...stored });
       }
@@ -60,6 +82,7 @@ export default function NotificationsPage() {
 
   const update = async (next: NotifyPrefs) => {
     setPrefs(next);
+    saveLocalPrefs(next);                                  // survives reloads even when off
     if (state === 'on') { await savePrefs(next); flashSaved(); }
   };
 
