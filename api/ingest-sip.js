@@ -13,6 +13,7 @@
 // namespaced API (admin.apps / admin.credential) through an ESM default import.
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { extractPdfText, parseStatement, orientTriple, isAmbiguous } from './_pdf.js';
 
 // ─── Firebase Admin (singleton) ─────────────────────────────────────────────────
 function getDb() {
@@ -175,7 +176,7 @@ export function folioMatches(stored, parsed) {
   return ta.slice(-n) === tb.slice(-n);
 }
 
-function extractFields(text) {
+export function extractFields(text) {
   const flat = String(text || '').replace(/\s+/g, ' ');
 
   let folio = fieldValue(text, ['Folio Number', 'Folio No', 'Folio']);
@@ -187,7 +188,11 @@ function extractFields(text) {
 
   let schemeRaw = fieldValue(text, ['Scheme Details', 'Scheme Name', 'SIP registered under', 'Scheme']);
   if (!schemeRaw) {
-    const m = flat.match(/(?:purchase|investment|subscription)\s+(?:in|under)\s+(.+?)\s+(?:for\s+(?:value\s+date|Rs)|on\s+\d)/i);
+    const m = flat.match(/(?:purchase|investment|subscription)\s+(?:in|under)\s+(.+?)\s+(?:for\s+(?:value\s+date|Rs)|on\s+\d)/i)
+      // "...instalment dated 23/07/2026 towards <scheme> is successfully processed"
+      || flat.match(/\btowards\s+(.+?)\s+(?:is|was|has\s+been)\b/i)
+      // Subject line: "SIP Confirmation: <scheme> - Folio XXXX"
+      || flat.match(/^[^:\n]*confirmation:\s*(.+?)\s+-\s+Folio\b/i);
     schemeRaw = m ? m[1].trim() : null;
   }
 
@@ -367,7 +372,45 @@ export default async function handler(req, res) {
     });
   }
 
-  const parsed = parseSipEmail(text);
+  // Some AMCs (Invesco/KFintech) put only the scheme and date in the email and every
+  // figure in a password-protected statement PDF — read that when the email falls short.
+  const pdfs = (Array.isArray(body?.attachments) ? body.attachments : [])
+    .filter(a => a?.data && /pdf/i.test(String(a.name || a.mimeType || '')));
+
+  let parsed = parseSipEmail(text);
+  let pdfDiag = null;
+
+  if (!parsed && pdfs.length) {
+    const f = extractFields(text);
+    pdfDiag = { tried: pdfs.map(p => p.name), errors: [] };
+    // The PDF supplies money, never identity — folio/scheme/date must come from the email
+    if (f.folioNumber && f.schemeRaw && f.installmentDate) {
+      for (const p of pdfs) {
+        try {
+          const { text: pdfText } = await extractPdfText(p.data);
+          pdfDiag.textPreview = pdfText.replace(/\n/g, ' | ').slice(0, 2500);
+          const row = parseStatement(pdfText, f.installmentDate);
+          if (!row) { pdfDiag.errors.push(`${p.name}: no transaction row matched`); continue; }
+          parsed = {
+            ...f,
+            amount: row.amount,
+            units: row.units,
+            nav: row.nav,
+            installmentDate: row.date || f.installmentDate,
+            navDate: row.date || f.installmentDate,
+            fromPdf: { name: p.name, line: row.line, ambiguous: isAmbiguous(row) },
+          };
+          delete parsed.missing;
+          break;
+        } catch (e) {
+          pdfDiag.errors.push(`${p.name}: ${e.message}`);
+        }
+      }
+    } else {
+      pdfDiag.errors.push('Email is missing folio/scheme/date — a statement cannot supply those.');
+    }
+  }
+
   if (!parsed) {
     const diag = describeParse(text);
     return res.status(422).json({
@@ -376,6 +419,8 @@ export default async function handler(req, res) {
       found: diag.found,
       subject: body?.subject || null,
       preview: String(text).replace(/\s+/g, ' ').slice(0, 300),
+      pdf: pdfDiag,
+      attachments: (body?.attachments || []).map(a => a?.name).filter(Boolean),
     });
   }
 
@@ -397,6 +442,24 @@ export default async function handler(req, res) {
   // Units: from the email if present, else estimate from NAV
   let schemeCode = mapping?.schemeCode;
   if (!schemeCode) { const r = await resolveSchemeCode(parsed.schemeRaw); schemeCode = r?.schemeCode; }
+  // A statement row can't say which figure is units and which is NAV — amount = units × NAV
+  // holds either way round, and column order differs by AMC. Settle it against the
+  // published NAV rather than trusting a guess.
+  if (parsed.fromPdf) {
+    warnings.push(`Figures read from ${parsed.fromPdf.name}.`);
+    if (parsed.fromPdf.ambiguous) {
+      const point = schemeCode ? await navOnDate(schemeCode, parsed.installmentDate) : null;
+      if (point) {
+        const fixed = orientTriple({ amount: parsed.amount, units: parsed.units, nav: parsed.nav }, point.nav);
+        parsed.units = fixed.units;
+        parsed.nav = fixed.nav;
+        if (fixed.swapped) warnings.push('Units/NAV were the other way round in the statement — corrected against the published NAV.');
+      } else {
+        warnings.push('Could not confirm which figure is the NAV — please check units and NAV.');
+      }
+    }
+  }
+
   let units = parsed.units, nav = parsed.nav, navDate = parsed.navDate;
   let unitsEstimated = false;
   if ((units == null || nav == null) && schemeCode) {

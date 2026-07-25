@@ -193,7 +193,11 @@ export function parseSipEmail(text: string): ParsedSip | null {
   // ── Scheme ─────────────────────────────────────────────────────────────────
   let schemeRaw = fieldValue(text, ['Scheme Details', 'Scheme Name', 'SIP registered under', 'Scheme']);
   if (!schemeRaw) {
-    const m = flat.match(/(?:purchase|investment|subscription)\s+(?:in|under)\s+(.+?)\s+(?:for\s+(?:value\s+date|Rs)|on\s+\d)/i);
+    const m = flat.match(/(?:purchase|investment|subscription)\s+(?:in|under)\s+(.+?)\s+(?:for\s+(?:value\s+date|Rs)|on\s+\d)/i)
+      // "...instalment dated 23/07/2026 towards <scheme> is successfully processed"
+      || flat.match(/\btowards\s+(.+?)\s+(?:is|was|has\s+been)\b/i)
+      // Subject line: "SIP Confirmation: <scheme> - Folio XXXX"
+      || flat.match(/^[^:\n]*confirmation:\s*(.+?)\s+-\s+Folio\b/i);
     schemeRaw = m?.[1]?.trim() ?? null;
   }
 

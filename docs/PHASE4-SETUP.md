@@ -31,6 +31,29 @@ Vercel → project → **Settings → Environment Variables** (Production):
 |------|-------|
 | `INGEST_SECRET` | a long random string you invent (e.g. from a password manager) |
 | `FIREBASE_SERVICE_ACCOUNT` | the **entire JSON** from step 1, pasted as one value |
+| `STATEMENT_PDF_PASSWORDS` | *(optional)* comma-separated passwords for attached account statements |
+
+### Statement PDFs
+
+Some AMCs — Invesco/KFintech among them — send a "SIP Confirmation" email that names only
+the scheme and date, and put the amount, units and NAV in an **attached, password-protected
+account statement**. The forwarder sends PDFs (≤2MB) along with the email, and the endpoint
+opens them to fill in the figures.
+
+The password is the **primary unitholder's PAN, in capitals**. Set one per holder:
+
+```
+STATEMENT_PDF_PASSWORDS=ABCDE1234F,PQRST5678K
+```
+
+Treat these as secrets — a PAN is a government ID. They live only in Vercel's environment,
+never in the repo and never in the browser bundle (no `VITE_` prefix). Without this the
+email still stages, but with the figures left blank for you to fill in at review.
+
+**Which figure is units and which is NAV** can't be told from a statement row alone —
+`amount = units × NAV` holds either way round and column order differs by AMC. The endpoint
+settles it against the scheme's published NAV for that date and says so in the review
+warnings if it had to swap them.
 
 Redeploy after adding them.
 

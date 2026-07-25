@@ -18,6 +18,7 @@ const INGEST_SECRET = 'PASTE-THE-SAME-SECRET-AS-VERCEL';
 //                                KFintech "Systematic Investment request" mails.
 //                                Deliberately without "Plan" so both match.
 //   "transaction confirmation" → SBI/CAMS purchase confirmations
+//   "SIP Confirmation"         → Invesco/KFintech, where the figures are in the PDF only
 //   "New Purchase"             → KFintech request + processed mails
 //   "units allotted"           → other AMCs' allotment mails
 // The trailing -subject:(...) drops cancellations/rejections, which otherwise match
@@ -25,7 +26,7 @@ const INGEST_SECRET = 'PASTE-THE-SAME-SECRET-AS-VERCEL';
 // Test any change in the Gmail search box first.
 const SEARCH_QUERY  =
   'newer_than:10d ' +
-  'subject:("Systematic Investment" OR "transaction confirmation" OR "New Purchase" OR "units allotted") ' +
+  'subject:("Systematic Investment" OR "transaction confirmation" OR "SIP Confirmation" OR "New Purchase" OR "units allotted") ' +
   '-subject:(cancellation OR cancelled OR canceled OR ceased OR discontinued OR rejected OR failed OR reversal OR refund)';
 
 const PROCESSED_LABEL = 'FF-SIP-Sent';
@@ -34,6 +35,28 @@ const PROCESSED_LABEL = 'FF-SIP-Sent';
 // later learns their format.
 const SKIPPED_LABEL   = 'FF-SIP-Skipped';
 const MAX_THREADS     = 25;
+
+// Some AMCs put every figure in an attached account statement, so PDFs are forwarded too.
+// Base64 inflates by ~33% and the endpoint accepts ~4.5MB, so keep well under that.
+const MAX_PDF_BYTES   = 2 * 1024 * 1024;
+
+/** PDF attachments of a message, base64 encoded, skipping anything oversized. */
+function pdfAttachmentsOf_(msg) {
+  var out = [];
+  var atts = msg.getAttachments({ includeInlineImages: false, includeAttachments: true });
+  for (var i = 0; i < atts.length; i++) {
+    var a = atts[i];
+    var name = a.getName() || '';
+    if (!/\.pdf$/i.test(name) && a.getContentType() !== 'application/pdf') continue;
+    if (a.getSize() > MAX_PDF_BYTES) {
+      Logger.log('  skipping %s — %s KB exceeds the size limit', name, Math.round(a.getSize() / 1024));
+      continue;
+    }
+    out.push({ name: name, mimeType: a.getContentType(), data: Utilities.base64Encode(a.getBytes()) });
+    if (out.length >= 2) break;
+  }
+  return out;
+}
 
 // ── Main ─────────────────────────────────────────────────────────────────────────
 function forwardSipEmails() {
@@ -65,6 +88,7 @@ function forwardSipEmails() {
         subject: msg.getSubject(),
         body: msg.getPlainBody(),
         date: msg.getDate().toISOString(),
+        attachments: pdfAttachmentsOf_(msg),
       };
       try {
         const res = UrlFetchApp.fetch(INGEST_URL, {
@@ -149,6 +173,9 @@ function debugOneEmail() {
   Logger.log('--- plain body as the parser sees it (first 1500 chars, " | " = line break) ---');
   Logger.log(bodyText.slice(0, 1500).replace(/\n/g, ' | '));
 
+  const pdfs = pdfAttachmentsOf_(msg);
+  Logger.log('PDFs   : %s', pdfs.length ? pdfs.map(function (p) { return p.name; }).join(', ') : '(none)');
+
   const res = UrlFetchApp.fetch(INGEST_URL, {
     method: 'post',
     contentType: 'application/json',
@@ -160,6 +187,7 @@ function debugOneEmail() {
       subject: msg.getSubject(),
       body: bodyText,
       date: msg.getDate().toISOString(),
+      attachments: pdfs,
     }),
     muteHttpExceptions: true,
   });
