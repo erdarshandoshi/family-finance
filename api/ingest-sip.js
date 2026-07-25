@@ -396,9 +396,15 @@ export default async function handler(req, res) {
             amount: row.amount,
             units: row.units,
             nav: row.nav,
-            installmentDate: row.date || f.installmentDate,
+            // Keep the instalment date the email quoted — the row's date is when units
+            // were allotted, which belongs to navDate.
+            installmentDate: f.installmentDate,
             navDate: row.date || f.installmentDate,
-            fromPdf: { name: p.name, line: row.line, ambiguous: isAmbiguous(row) },
+            fromPdf: {
+              name: p.name, line: row.line,
+              ambiguous: row.ambiguous ?? isAmbiguous(row),
+              swapped: !!row.swapped,
+            },
           };
           delete parsed.missing;
           break;
@@ -447,6 +453,9 @@ export default async function handler(req, res) {
   // published NAV rather than trusting a guess.
   if (parsed.fromPdf) {
     warnings.push(`Figures read from ${parsed.fromPdf.name}.`);
+    if (parsed.fromPdf.swapped) {
+      warnings.push('Units/NAV were the other way round in the statement — corrected against the NAV it declares.');
+    }
     if (parsed.fromPdf.ambiguous) {
       const point = schemeCode ? await navOnDate(schemeCode, parsed.installmentDate) : null;
       if (point) {

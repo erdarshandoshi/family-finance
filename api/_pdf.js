@@ -166,14 +166,31 @@ export function isAmbiguous(t) {
   return ratio < 10;          // an order of magnitude apart is unambiguous enough
 }
 
+/**
+ * The NAV the statement itself declares, e.g. "NAV as on 24/07/2026(Rs. )51.67".
+ * Preferred over a network lookup for orienting a row: it's the same document, so it
+ * can't disagree with it.
+ */
+export function navHintFromText(text) {
+  const flat = String(text).replace(/\s+/g, ' ');
+  const m = flat.match(/NAV\s+as\s+on\s+\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\s*\(?\s*Rs\.?\s*\)?\s*([\d,]+(?:\.\d+)?)/i)
+    || flat.match(/(?:last\s+declared|applicable)\s+NAV[^\d]{0,20}([\d,]+\.\d+)/i);
+  const n = m ? parseFloat(m[1].replace(/,/g, '')) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 const PURCHASE_ROW = /(sip|purchase|instal?ment|investment|subscription)/i;
-const SKIP_ROW = /(redemption|redeem|switch\s*out|reversal|rejected|cancell?)/i;
+// Registration/summary rows repeat the instalment amount and dates without being a
+// transaction, so they must never be mistaken for one.
+const SKIP_ROW = /(redemption|redeem|switch\s*out|reversal|rejected|cancell?|registration|opening\s+balance|closing|portfolio\s+summary)/i;
 
 /**
  * The SIP transaction in a statement. Prefers the row matching `preferDate` (the date the
  * email quoted); otherwise the latest purchase row.
  */
 export function parseStatement(text, preferDate) {
+  const navHint = navHintFromText(text);
+
   const rows = [];
   for (const line of String(text).split(/\r?\n/)) {
     if (SKIP_ROW.test(line)) continue;
@@ -181,16 +198,34 @@ export function parseStatement(text, preferDate) {
     if (!dates.length) continue;
     const t = tripleFrom(numbersIn(line));
     if (!t) continue;
-    rows.push({ date: dates[0], ...t, line: line.slice(0, 200), isPurchase: PURCHASE_ROW.test(line) });
+    // A row may carry both a transaction date and a NAV date; keep both for matching.
+    rows.push({ date: dates[0], dates, ...t, line: line.slice(0, 200), isPurchase: PURCHASE_ROW.test(line) });
   }
   if (!rows.length) return null;
 
-  const exact = preferDate && rows.find(r => r.date === preferDate);
-  if (exact) return exact;
+  const finish = r => {
+    const oriented = orientTriple(r, navHint);
+    return { ...oriented, navHint, ambiguous: navHint ? false : isAmbiguous(r) };
+  };
+
+  if (preferDate) {
+    // Units are allotted at the next business day's NAV, so the row's date often trails
+    // the instalment date the email quotes — match on any date the row carries, then
+    // widen to the nearest few days rather than silently falling back to "latest".
+    const onDate = rows.filter(r => r.dates.includes(preferDate));
+    if (onDate.length) return finish(onDate[onDate.length - 1]);
+
+    const target = new Date(preferDate).getTime();
+    const near = rows
+      .map(r => ({ r, gap: Math.min(...r.dates.map(d => Math.abs(new Date(d).getTime() - target))) }))
+      .filter(x => x.gap <= 5 * 86400000)
+      .sort((a, b) => a.gap - b.gap || (b.r.isPurchase ? 1 : 0) - (a.r.isPurchase ? 1 : 0));
+    if (near.length) return finish(near[0].r);
+  }
 
   const purchases = rows.filter(r => r.isPurchase);
   const pool = purchases.length ? purchases : rows;
-  return pool.reduce((a, b) => (b.date > a.date ? b : a));
+  return finish(pool.reduce((a, b) => (b.date > a.date ? b : a)));
 }
 
 export const _internal = { datesIn, numbersIn };
