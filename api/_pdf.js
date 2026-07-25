@@ -6,6 +6,7 @@
 
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import fs from 'node:fs';
 
 // pdf.js ships a legacy build for Node; the modern one expects browser globals.
 async function loadPdfjs() {
@@ -21,8 +22,13 @@ function standardFontDir() {
   try {
     const require = createRequire(import.meta.url);
     const root = path.dirname(require.resolve('pdfjs-dist/package.json'));
+    const dir = path.join(root, 'standard_fonts');
+    // Serverless bundlers trace static imports, not paths built at runtime, so these
+    // font files may not be deployed. Pointing pdf.js at a missing directory fails
+    // harder than not setting it at all.
+    if (!fs.existsSync(dir)) return undefined;
     // pdf.js insists on a forward-slash trailing separator, on Windows too
-    return path.join(root, 'standard_fonts').replace(/\\/g, '/') + '/';
+    return dir.replace(/\\/g, '/') + '/';
   } catch {
     return undefined;
   }
