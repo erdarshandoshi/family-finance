@@ -8,8 +8,81 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import fs from 'node:fs';
 
+/**
+ * pdf.js polyfills DOMMatrix/Path2D/ImageData on import — but only when it decides it's in
+ * Node, and on a serverless runtime that ships a `navigator` global it skips them, so text
+ * extraction dies with "DOMMatrix is not defined". Install them ourselves first (`??=`, so
+ * a real browser/Node global always wins). Only a 2D DOMMatrix is needed for text.
+ */
+function installPdfGlobals() {
+  if (typeof globalThis.DOMMatrix === 'undefined') {
+    class DOMMatrix {
+      constructor(init) {
+        this.a = 1; this.b = 0; this.c = 0; this.d = 1; this.e = 0; this.f = 0;
+        if (Array.isArray(init) || init instanceof Float64Array || init instanceof Float32Array) {
+          const n = Array.from(init);
+          if (n.length === 6) [this.a, this.b, this.c, this.d, this.e, this.f] = n;
+          else if (n.length === 16) { this.a = n[0]; this.b = n[1]; this.c = n[4]; this.d = n[5]; this.e = n[12]; this.f = n[13]; }
+        }
+      }
+      get m11() { return this.a; } get m12() { return this.b; }
+      get m21() { return this.c; } get m22() { return this.d; }
+      get m41() { return this.e; } get m42() { return this.f; }
+      get m13() { return 0; } get m14() { return 0; } get m23() { return 0; } get m24() { return 0; }
+      get m31() { return 0; } get m32() { return 0; } get m33() { return 1; } get m34() { return 0; }
+      get m43() { return 0; } get m44() { return 1; }
+      get is2D() { return true; }
+      get isIdentity() { return this.a === 1 && this.b === 0 && this.c === 0 && this.d === 1 && this.e === 0 && this.f === 0; }
+      multiply(o) {
+        const r = new DOMMatrix();
+        r.a = this.a * o.a + this.c * o.b;
+        r.b = this.b * o.a + this.d * o.b;
+        r.c = this.a * o.c + this.c * o.d;
+        r.d = this.b * o.c + this.d * o.d;
+        r.e = this.a * o.e + this.c * o.f + this.e;
+        r.f = this.b * o.e + this.d * o.f + this.f;
+        return r;
+      }
+      multiplySelf(o) { return Object.assign(this, this.multiply(o)); }
+      preMultiplySelf(o) { return Object.assign(this, o.multiply(this)); }
+      translate(tx = 0, ty = 0) { return this.multiply(new DOMMatrix([1, 0, 0, 1, tx, ty])); }
+      translateSelf(tx = 0, ty = 0) { return this.multiplySelf(new DOMMatrix([1, 0, 0, 1, tx, ty])); }
+      scale(sx = 1, sy) { return this.multiply(new DOMMatrix([sx, 0, 0, sy ?? sx, 0, 0])); }
+      scaleSelf(sx = 1, sy) { return this.multiplySelf(new DOMMatrix([sx, 0, 0, sy ?? sx, 0, 0])); }
+      rotate(deg = 0) { const r = deg * Math.PI / 180, c = Math.cos(r), s = Math.sin(r); return this.multiply(new DOMMatrix([c, s, -s, c, 0, 0])); }
+      rotateSelf(deg = 0) { const r = deg * Math.PI / 180, c = Math.cos(r), s = Math.sin(r); return this.multiplySelf(new DOMMatrix([c, s, -s, c, 0, 0])); }
+      inverse() {
+        const det = this.a * this.d - this.b * this.c, r = new DOMMatrix();
+        if (!det) { r.a = r.b = r.c = r.d = r.e = r.f = NaN; return r; }
+        r.a = this.d / det; r.b = -this.b / det; r.c = -this.c / det; r.d = this.a / det;
+        r.e = (this.c * this.f - this.d * this.e) / det; r.f = (this.b * this.e - this.a * this.f) / det;
+        return r;
+      }
+      invertSelf() { return Object.assign(this, this.inverse()); }
+      transformPoint(p = { x: 0, y: 0 }) {
+        return { x: this.a * p.x + this.c * p.y + this.e, y: this.b * p.x + this.d * p.y + this.f, z: 0, w: 1 };
+      }
+      toFloat32Array() { return new Float32Array([this.a, this.b, 0, 0, this.c, this.d, 0, 0, 0, 0, 1, 0, this.e, this.f, 0, 1]); }
+      toFloat64Array() { return new Float64Array([this.a, this.b, 0, 0, this.c, this.d, 0, 0, 0, 0, 1, 0, this.e, this.f, 0, 1]); }
+      toString() { return `matrix(${this.a}, ${this.b}, ${this.c}, ${this.d}, ${this.e}, ${this.f})`; }
+    }
+    DOMMatrix.__ffPolyfill = true;
+    globalThis.DOMMatrix = DOMMatrix;
+  }
+  // Only constructed, never drawn, during text extraction — stubs are enough.
+  if (typeof globalThis.Path2D === 'undefined') {
+    globalThis.Path2D = class Path2D { addPath() {} moveTo() {} lineTo() {} bezierCurveTo() {} quadraticCurveTo() {} closePath() {} rect() {} arc() {} };
+  }
+  if (typeof globalThis.ImageData === 'undefined') {
+    globalThis.ImageData = class ImageData {
+      constructor(w, h) { this.width = w | 0; this.height = h | 0; this.data = new Uint8ClampedArray((this.width) * (this.height) * 4); }
+    };
+  }
+}
+
 // pdf.js ships a legacy build for Node; the modern one expects browser globals.
 async function loadPdfjs() {
+  installPdfGlobals();
   const mod = await import('pdfjs-dist/legacy/build/pdf.mjs');
   return mod.default ?? mod;
 }
