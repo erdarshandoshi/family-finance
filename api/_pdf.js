@@ -5,6 +5,7 @@
 // holder's PAN, so one per holder). Server-side only; never sent to the browser.
 
 import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
 
@@ -84,7 +85,16 @@ function installPdfGlobals() {
 async function loadPdfjs() {
   installPdfGlobals();
   const mod = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  return mod.default ?? mod;
+  const pdfjs = mod.default ?? mod;
+  // Point pdf.js at its worker explicitly. The bundler doesn't trace the dynamic import
+  // it uses to find it, so on the serverless runtime it can't be located otherwise.
+  try {
+    const require = createRequire(import.meta.url);
+    // The ESM loader needs a file:// URL, not a raw path (a bare Windows/Vercel path fails)
+    pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(
+      require.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs')).href;
+  } catch { /* fall back to pdf.js's own resolution */ }
+  return pdfjs;
 }
 
 /**
