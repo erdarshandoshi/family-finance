@@ -25,6 +25,8 @@ export default function Layout() {
           const s = d.data();
           const payload: PendingTransaction = {
             id: generateId(),
+            kind: s.kind === 'nps' ? 'nps' : 'sip',
+            nps: s.nps ?? undefined,
             source: s.source === 'sms' ? 'sms' : 'gmail',
             externalId: s.externalId ?? `${s.folioNumber}|${s.installmentDate}|${s.amount}`,
             folioNumber: s.folioNumber,

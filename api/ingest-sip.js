@@ -14,6 +14,7 @@
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { extractPdfText, parseStatement, orientTriple, isAmbiguous } from './_pdf.js';
+import { isNpsStatement, parseNpsStatement } from './_nps.js';
 
 // ─── Firebase Admin (singleton) ─────────────────────────────────────────────────
 function getDb() {
@@ -372,11 +373,77 @@ export default async function handler(req, res) {
     });
   }
 
-  // Some AMCs (Invesco/KFintech) put only the scheme and date in the email and every
-  // figure in a password-protected statement PDF — read that when the email falls short.
   const pdfs = (Array.isArray(body?.attachments) ? body.attachments : [])
     .filter(a => a?.data && /pdf/i.test(String(a.name || a.mimeType || '')));
 
+  // ── NPS monthly statement ──────────────────────────────────────────────────────
+  // A whole different shape: it updates the NPS tab (a corpus), not an MF lot. The
+  // figures live in the attached PDF, so read that and stage an `nps` review item.
+  if (isNpsStatement(text)) {
+    if (!pdfs.length) {
+      return res.status(422).json({ error: 'NPS statement has no PDF attached — nothing to read.', subject: body?.subject || null });
+    }
+    let db2;
+    try { db2 = getDb(); } catch (e) {
+      return res.status(500).json({ error: 'Firebase Admin not configured', detail: String(e.message || e) });
+    }
+    const npsDiag = { tried: pdfs.map(p => p.name), errors: [] };
+    for (const p of pdfs) {
+      let pdfText;
+      try {
+        ({ text: pdfText } = await extractPdfText(p.data));
+      } catch (e) { npsDiag.errors.push(`${p.name}: ${e.message}`); continue; }
+      npsDiag.textPreview = pdfText.replace(/\s+/g, ' ').slice(0, 2500);
+
+      const nps = parseNpsStatement((body?.subject || '') + '\n' + pdfText);
+      if (!nps) { npsDiag.errors.push(`${p.name}: no PRAN found`); continue; }
+
+      // Attribute: existing NPS entry with this PRAN wins; else match the subscriber name.
+      let memberId = null;
+      try {
+        const snap = await db2.doc('users/shared-family').get();
+        const d = snap.exists ? snap.data() : {};
+        const existing = (d.nps || []).find(n => String(n.pran).replace(/\s/g, '') === nps.pran);
+        if (existing) memberId = existing.memberId;
+        else if (nps.subscriberName) {
+          const first = nps.subscriberName.split(/\s+/)[0].toLowerCase();
+          const m = (d.members || []).find(mm => String(mm.name).toLowerCase().includes(first));
+          if (m) memberId = m.id;
+        }
+      } catch { /* attribute in review */ }
+
+      const fingerprint = `nps:${nps.pran}:${nps.tier}:${nps.asOnDate || nps.period || ''}`;
+      const docId = fingerprint.replace(/[^a-zA-Z0-9]/g, '_');
+      const record = {
+        kind: 'nps',
+        source: body?.source || 'gmail',
+        externalId: fingerprint,
+        memberId: memberId || null,
+        nps,
+        // Common fields so the drain and dedup treat it like any pending item
+        folioNumber: nps.pran,
+        schemeName: `NPS Tier ${nps.tier}${nps.fundManager ? ' · ' + nps.fundManager : ''}`,
+        amc: 'NPS',
+        amount: nps.currentCorpus || 0,
+        installmentDate: nps.asOnDate || new Date().toISOString().slice(0, 10),
+        isSIP: false,
+        createdAt: new Date().toISOString(),
+        receivedAt: body?.date || null,
+        gmailAccount: body?.account || null,
+        warnings: nps.warnings || [],
+      };
+      try {
+        await db2.collection('sipInbox').doc(docId).set(record, { merge: true });
+        return res.status(200).json({ ok: true, staged: docId, kind: 'nps', record });
+      } catch (e) {
+        return res.status(500).json({ error: 'Failed to stage NPS statement', detail: String(e.message || e) });
+      }
+    }
+    return res.status(422).json({ error: 'Could not read the NPS statement PDF', nps: npsDiag, subject: body?.subject || null });
+  }
+
+  // Some AMCs (Invesco/KFintech) put only the scheme and date in the email and every
+  // figure in a password-protected statement PDF — read that when the email falls short.
   let parsed = parseSipEmail(text);
   let pdfDiag = null;
 

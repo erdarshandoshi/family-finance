@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Inbox, ClipboardPaste, Loader2, Check, X, AlertTriangle, Calculator, Mail } from 'lucide-react';
+import { Inbox, ClipboardPaste, Loader2, Check, X, AlertTriangle, Calculator, Mail, Building2 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, formatDate, generateId } from '../utils/helpers';
 import { parseSipEmail, folioMappingMatches, isMaskedFolio } from '../utils/sipParser';
 import { resolveSchemeCode, navOnDate } from '../utils/mfNav';
-import type { MutualFund, PendingTransaction } from '../types';
+import type { MutualFund, NPSEntry, PendingTransaction } from '../types';
 
 export default function ReviewInboxPage() {
   const { data, dispatch } = useApp();
@@ -137,7 +137,9 @@ export default function ReviewInboxPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {pending.map(p => <PendingCard key={p.id} txn={p} />)}
+            {pending.map(p => p.kind === 'nps'
+              ? <NpsCard key={p.id} txn={p} />
+              : <PendingCard key={p.id} txn={p} />)}
           </div>
         )}
       </div>
@@ -335,6 +337,118 @@ function PendingCard({ txn }: { txn: PendingTransaction }) {
         <button onClick={confirm} disabled={!canConfirm}
           className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-4 py-1.5 rounded-xl text-sm font-medium transition-colors">
           <Check size={14} /> Confirm & add
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── NPS statement card ──────────────────────────────────────────────────────────
+function NpsCard({ txn }: { txn: PendingTransaction }) {
+  const { data, dispatch } = useApp();
+  const nps = txn.nps!;
+  const existing = (data.nps ?? []).find(n =>
+    String(n.pran).replace(/\s/g, '') === nps.pran && n.tier === nps.tier);
+
+  const [memberId, setMemberId] = useState(txn.memberId ?? existing?.memberId ?? '');
+  const [corpus, setCorpus] = useState(nps.currentCorpus != null ? String(nps.currentCorpus) : '');
+  const [invested, setInvested] = useState(nps.totalInvested != null ? String(nps.totalInvested) : '');
+
+  const corpusNum = parseFloat(corpus);
+  const investedNum = parseFloat(invested);
+  const canConfirm = !!memberId && Number.isFinite(corpusNum) && corpusNum > 0;
+
+  const confirm = () => {
+    if (!canConfirm) return;
+    const entry: NPSEntry = {
+      id: existing?.id ?? generateId(),
+      memberId,
+      pran: nps.pran,
+      tier: nps.tier,
+      fundManager: nps.fundManager ?? existing?.fundManager ?? 'SBI Pension',
+      investmentOption: nps.investmentOption ?? existing?.investmentOption ?? 'Active',
+      totalInvested: Number.isFinite(investedNum) ? investedNum : (existing?.totalInvested ?? 0),
+      currentCorpus: corpusNum,
+      equityPct: nps.equityPct ?? existing?.equityPct,
+      corporateBondPct: nps.corporateBondPct ?? existing?.corporateBondPct,
+      govtSecPct: nps.govtSecPct ?? existing?.govtSecPct,
+      altAssetPct: nps.altAssetPct ?? existing?.altAssetPct,
+      dateOfJoining: nps.dateOfJoining ?? existing?.dateOfJoining ?? '',
+      notes: existing?.notes,
+    };
+    dispatch({ type: existing ? 'UPDATE_NPS' : 'ADD_NPS', payload: entry });
+    dispatch({ type: 'DELETE_PENDING', payload: txn.id });
+  };
+
+  const inputCls = 'w-full bg-surface2 border border-edge rounded-lg px-2.5 py-1.5 text-sm text-content focus:outline-none focus:border-indigo-500';
+  const labelCls = 'block text-xs text-faint mb-1';
+  const gain = Number.isFinite(corpusNum) && Number.isFinite(investedNum) ? corpusNum - investedNum : null;
+  const alloc = [
+    ['E', nps.equityPct], ['C', nps.corporateBondPct], ['G', nps.govtSecPct], ['A', nps.altAssetPct],
+  ].filter(([, v]) => v != null) as [string, number][];
+
+  return (
+    <div className="bg-surface border border-edge rounded-2xl shadow-card p-4 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-content font-semibold text-sm leading-snug flex items-center gap-1.5">
+            <Building2 size={15} className="text-accent flex-shrink-0" />
+            NPS Tier {nps.tier}{nps.fundManager ? ` · ${nps.fundManager}` : ''}
+          </p>
+          <p className="text-faint text-xs mt-0.5">
+            PRAN <span className="font-mono text-muted">{nps.pran}</span>
+            {nps.investmentOption && <> · {nps.investmentOption}</>}
+            {nps.period && <> · {nps.period}</>}
+          </p>
+          <p className="text-faint text-xs mt-1 flex items-center gap-1.5">
+            <Mail size={11} className="flex-shrink-0" />
+            {txn.gmailAccount ? <>Received in <span className="text-muted">{txn.gmailAccount.split('@')[0]}</span></> : 'From statement'}
+            {existing ? <span className="text-warn"> · updates existing entry</span> : <span className="text-success"> · new entry</span>}
+          </p>
+        </div>
+        <span className="flex-shrink-0 text-xs bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded-full">NPS</span>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 bg-surface2 rounded-xl p-2.5 text-center">
+        <div><p className="text-faint text-xs">Corpus</p><p className="text-content text-sm font-semibold">{Number.isFinite(corpusNum) ? formatCurrency(corpusNum) : '—'}</p></div>
+        <div><p className="text-faint text-xs">Invested</p><p className="text-content text-sm font-semibold">{Number.isFinite(investedNum) ? formatCurrency(investedNum) : '—'}</p></div>
+        <div><p className="text-faint text-xs">Gain</p><p className={`text-sm font-semibold ${gain != null && gain < 0 ? 'text-danger' : 'text-success'}`}>{gain != null ? formatCurrency(gain) : '—'}</p></div>
+      </div>
+
+      {alloc.length > 0 && (
+        <p className="text-faint text-xs">Allocation: {alloc.map(([k, v]) => `${k} ${v}%`).join(' · ')}</p>
+      )}
+
+      {txn.warnings && txn.warnings.length > 0 && txn.warnings.map((w, i) => (
+        <p key={i} className="text-warn text-xs flex items-start gap-1.5"><AlertTriangle size={12} className="mt-0.5 flex-shrink-0" /> {w}</p>
+      ))}
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div>
+          <label className={labelCls}>Member *</label>
+          <select className={inputCls} value={memberId} onChange={e => setMemberId(e.target.value)}>
+            <option value="">— Select —</option>
+            {data.members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className={labelCls}>Corpus (₹) *</label>
+          <input type="number" step="0.01" className={inputCls} value={corpus} onChange={e => setCorpus(e.target.value)} />
+        </div>
+        <div>
+          <label className={labelCls}>Invested (₹)</label>
+          <input type="number" step="0.01" className={inputCls} value={invested} onChange={e => setInvested(e.target.value)} />
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-2 pt-1">
+        <button onClick={() => dispatch({ type: 'DELETE_PENDING', payload: txn.id })}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-muted hover:text-danger transition-colors">
+          <X size={14} /> Reject
+        </button>
+        <button onClick={confirm} disabled={!canConfirm}
+          className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-4 py-1.5 rounded-xl text-sm font-medium transition-colors">
+          <Check size={14} /> {existing ? 'Update NPS' : 'Add to NPS'}
         </button>
       </div>
     </div>

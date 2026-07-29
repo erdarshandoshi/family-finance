@@ -181,12 +181,33 @@ export interface FolioMapping {
 
 export type PendingSource = 'paste' | 'gmail' | 'sms';
 
+/** An NPS statement parsed from a PDF, awaiting review before it updates the NPS tab. */
+export interface NpsPending {
+  pran: string;
+  subscriberName?: string;
+  tier: 'I' | 'II';
+  fundManager?: NPSFundManager;
+  investmentOption?: NPSInvestmentOption;
+  currentCorpus: number;
+  totalInvested?: number;
+  equityPct?: number;
+  corporateBondPct?: number;
+  govtSecPct?: number;
+  altAssetPct?: number;
+  dateOfJoining?: string;
+  asOnDate?: string;
+  period?: string;
+}
+
 /**
- * A parsed-but-unconfirmed SIP installment awaiting human review before it becomes
- * a real MF lot. Units/NAV may be estimated from mfapi.in when the AMC email omits them.
+ * A parsed-but-unconfirmed item awaiting human review. Usually a SIP installment that
+ * becomes an MF lot (`kind: 'sip'`), but `kind: 'nps'` carries an NPS statement that
+ * updates the NPS tab instead. Units/NAV may be estimated when an AMC email omits them.
  */
 export interface PendingTransaction {
   id: string;
+  kind?: 'sip' | 'nps';         // absent = 'sip' (back-compat)
+  nps?: NpsPending;             // present only when kind === 'nps'
   source: PendingSource;
   externalId?: string;          // gmail message id / dedupe fingerprint
   folioNumber: string;
