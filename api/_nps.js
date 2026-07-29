@@ -72,10 +72,22 @@ export function parseNpsStatement(text) {
   const subscriberName = (flat.match(/Subscriber\s+Name\s+([A-Z][A-Z .]+?)\s+Tier/i) || [])[1]?.trim() || null;
   const dateOfJoining = isoDate((flat.match(/Registration\s+Date\s+([0-9]{1,2}[-/][A-Za-z]{3,}[-/][0-9]{2,4})/i) || [])[1]);
 
-  // Statement period / as-on date, for display and dedup
-  const period = (flat.match(/period\s+(\d{1,2}[-/][A-Za-z]{3,}[-/]\d{4})\s*(?:TO|to|-)\s*(\d{1,2}[-/][A-Za-z]{3,}[-/]\d{4})/i) || []).slice(1, 3).join(' to ') || null;
-  const asOnDate = isoDate((flat.match(/as\s+on\s+([A-Za-z]{3,}\s+\d{1,2},?\s+\d{4})/i) || [])[1])
-    || (period ? isoDate(period.split(' to ')[1]) : null);
+  // Statement period, for display and dedup. Two formats seen:
+  //   KFin:    "01-Jun-2026 TO 30-Jun-2026"
+  //   Protean: "April 01, 2026 to July 29, 2026"
+  let period = null;
+  let pm = flat.match(/(\d{1,2}[-/][A-Za-z]{3,}[-/]\d{4})\s*(?:TO|to)\s*(\d{1,2}[-/][A-Za-z]{3,}[-/]\d{4})/);
+  if (pm) period = `${pm[1]} to ${pm[2]}`;
+  else {
+    pm = flat.match(/([A-Za-z]{3,}\s+\d{1,2},\s+\d{4})\s+to\s+([A-Za-z]{3,}\s+\d{1,2},\s+\d{4})/i);
+    if (pm) period = `${pm[1]} to ${pm[2]}`;
+  }
+  // As-on date: the statement's own generation date is cleanest, else the period end,
+  // else an inline "as on …" (which some layouts split awkwardly).
+  const asOnDate =
+    isoDate((flat.match(/Statement\s+Generation\s+Date\s*:?\s*([A-Za-z]{3,}\s+\d{1,2},?\s+\d{4})/i) || [])[1])
+    || (period ? isoDate(period.split(' to ')[1]) : null)
+    || isoDate((flat.match(/as\s+on\s+([A-Za-z]{3,}\s+\d{1,2},?\s+\d{4})/i) || [])[1]);
 
   // Investment Summary: the four money figures appear in header order A, B, C, D — with a
   // standalone integer (No. of Contributions) between A and B, and the XIRR as a percentage.
