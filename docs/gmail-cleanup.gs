@@ -1,32 +1,30 @@
 /**
  * Gmail housekeeping for a personal account (e.g. niyaatipatel@gmail.com).
  *
- * TWO jobs, each on its own daily trigger:
+ * THREE jobs:
  *   cleanCategories()      → move old Social / Promotions / Updates mail to Trash
- *   highlightLargeEmails() → label big mails into size buckets so they're easy to bulk-delete
+ *   highlightLargeEmails() → label big mails into size buckets for easy bulk-delete
+ *   reportTopSenders()     → log which senders flood your inbox (unsubscribe targets)
  *
  * SAFETY
  *  - Mail is moved to TRASH (recoverable ~30 days), never permanently deleted.
- *  - DRY_RUN starts true: the first runs only LOG what they *would* trash. Flip to false
- *    once you've read the log and are happy.
- *  - KEEP_QUERY excludes your finance mail (SIP/NPS/etc.), starred and important, so the
- *    Family Finance forwarder never loses a source email.
- *  - Put this in a SEPARATE Apps Script project from the SIP forwarder (shared globals
- *    across files in one project cause name clashes).
+ *  - DRY_RUN starts true: the first runs only LOG what they *would* trash.
+ *  - KEEP_QUERY protects finance mail, bank alerts, starred and important.
+ *  - Put this in its OWN Apps Script project (separate from the SIP forwarder).
  */
 
 // ── Config ───────────────────────────────────────────────────────────────────────
-var DRY_RUN = true;                       // ← keep true until you've checked the log
+var DRY_RUN = true;                       // keep true until you've checked the log
 
 var CLEAN_CATEGORIES = ['promotions', 'social', 'updates'];  // drop 'updates' if unsure
 var DELETE_OLDER_THAN_DAYS = 7;           // only trash mail older than this many days
 var RUN_BUDGET_MS = 4.5 * 60 * 1000;      // keep clearing until ~4.5 min, then stop (6-min limit)
 
-// Keep bank alerts (debits/credits/NEFT/statements) — they live in Updates. Set to false
+// Keep bank alerts (debits/credits/NEFT/statements) — they live in Updates. Set false
 // if you actually want those trashed too.
 var KEEP_BANK_ALERTS = true;
 
-// Never trash anything matching this — your finance mail, starred, or important.
+// Never trash anything matching this — finance mail, starred, or important.
 var KEEP_QUERY =
   '-is:starred -is:important ' +
   '-subject:("Systematic Investment" OR "transaction confirmation" OR "SIP Confirmation" ' +
@@ -42,7 +40,12 @@ var SIZE_BUCKETS = [
   { q: 'larger:5M smaller:10M',   label: 'Space/3 · Big 5-10MB' },
 ];
 
-// ── Job 1: clean out old Social / Promotions / Updates ───────────────────────────
+// How many recent threads to sample for the "top senders" report.
+var REPORT_QUERY  = '(category:promotions OR category:social OR category:updates)';
+var REPORT_SAMPLE = 300;
+var REPORT_TOP_N  = 30;
+
+// ── Job 1: clean old Social / Promotions / Updates ───────────────────────────────
 function cleanCategories() {
   var cats = CLEAN_CATEGORIES.map(function (c) { return 'category:' + c; }).join(' OR ');
   var query = '(' + cats + ') older_than:' + DELETE_OLDER_THAN_DAYS + 'd ' + KEEP_QUERY;
@@ -52,7 +55,7 @@ function cleanCategories() {
     var preview = GmailApp.search(query, 0, 40);
     preview.forEach(function (t) { Logger.log('  would trash: %s', t.getFirstMessageSubject()); });
     Logger.log('DRY RUN — nothing deleted. Showing up to 40 examples; the real backlog may be far larger.');
-    Logger.log('Set DRY_RUN = false to start trashing (in batches, run again / let the daily trigger finish the rest).');
+    Logger.log('Set DRY_RUN = false to start trashing (runs in batches; run again / let the daily trigger finish).');
     return;
   }
 
@@ -83,6 +86,42 @@ function highlightLargeEmails() {
   Logger.log('Open the "Space" labels in Gmail to review and bulk-delete large mail.');
 }
 
+// ── Job 3: who's flooding the inbox (unsubscribe targets) ─────────────────────────
+function reportTopSenders() {
+  var threads = GmailApp.search(REPORT_QUERY, 0, REPORT_SAMPLE);
+  var counts = {};
+  var start = Date.now();
+
+  for (var i = 0; i < threads.length; i++) {
+    if (Date.now() - start > RUN_BUDGET_MS) { Logger.log('(stopped early at %s threads)', i); break; }
+    var msgs = threads[i].getMessages();
+    if (!msgs.length) continue;
+    var email = extractEmail_(msgs[0].getFrom());
+    counts[email] = (counts[email] || 0) + 1;
+  }
+
+  var rows = Object.keys(counts)
+    .map(function (k) { return { sender: k, n: counts[k] }; })
+    .sort(function (a, b) { return b.n - a.n; });
+
+  Logger.log('Top senders across %s sampled thread(s) — unsubscribe / block the worst:', threads.length);
+  rows.slice(0, REPORT_TOP_N).forEach(function (r) {
+    Logger.log('  %s×   %s', pad_(r.n), r.sender);
+  });
+  Logger.log('Tip: search "from:<sender>" in Gmail, then use its Unsubscribe link or a filter.');
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────────
 function getOrCreateLabel_(name) {
   return GmailApp.getUserLabelByName(name) || GmailApp.createLabel(name);
+}
+
+function extractEmail_(from) {
+  var m = String(from || '').match(/<([^>]+)>/);
+  return (m ? m[1] : String(from || '')).toLowerCase().trim() || '(unknown)';
+}
+
+function pad_(n) {
+  var s = String(n);
+  return s.length >= 4 ? s : ('    ' + s).slice(-4);
 }
