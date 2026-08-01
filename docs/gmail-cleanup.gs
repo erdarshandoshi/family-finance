@@ -20,13 +20,20 @@ var DRY_RUN = true;                       // ← keep true until you've checked 
 
 var CLEAN_CATEGORIES = ['promotions', 'social', 'updates'];  // drop 'updates' if unsure
 var DELETE_OLDER_THAN_DAYS = 7;           // only trash mail older than this many days
-var MAX_THREADS_PER_RUN = 300;            // cap per run so we never hit the 6-min limit
+var RUN_BUDGET_MS = 4.5 * 60 * 1000;      // keep clearing until ~4.5 min, then stop (6-min limit)
+
+// Keep bank alerts (debits/credits/NEFT/statements) — they live in Updates. Set to false
+// if you actually want those trashed too.
+var KEEP_BANK_ALERTS = true;
 
 // Never trash anything matching this — your finance mail, starred, or important.
 var KEEP_QUERY =
   '-is:starred -is:important ' +
   '-subject:("Systematic Investment" OR "transaction confirmation" OR "SIP Confirmation" ' +
-  'OR "New Purchase" OR "units allotted" OR "your NPS account" OR "Transaction Statement")';
+  'OR "New Purchase" OR "units allotted" OR "your NPS account" OR "Transaction Statement")' +
+  (KEEP_BANK_ALERTS
+    ? ' -subject:(debited OR credited OR NEFT OR IMPS OR UPI OR RTGS OR "A/c" OR "account statement" OR "transaction" OR "refund" OR "alert")'
+    : '');
 
 // Size buckets for the highlighter (Gmail understands larger:/smaller:)
 var SIZE_BUCKETS = [
@@ -39,26 +46,28 @@ var SIZE_BUCKETS = [
 function cleanCategories() {
   var cats = CLEAN_CATEGORIES.map(function (c) { return 'category:' + c; }).join(' OR ');
   var query = '(' + cats + ') older_than:' + DELETE_OLDER_THAN_DAYS + 'd ' + KEEP_QUERY;
-
-  var threads = GmailApp.search(query, 0, MAX_THREADS_PER_RUN);
-  Logger.log('Matched %s thread(s). Query: %s', threads.length, query);
-  if (threads.length === 0) return;
+  Logger.log('Query: %s', query);
 
   if (DRY_RUN) {
-    threads.slice(0, 25).forEach(function (t) {
-      Logger.log('  would trash: %s', t.getFirstMessageSubject());
-    });
-    Logger.log('DRY RUN — nothing deleted (%s matched). Set DRY_RUN = false to act.', threads.length);
+    var preview = GmailApp.search(query, 0, 40);
+    preview.forEach(function (t) { Logger.log('  would trash: %s', t.getFirstMessageSubject()); });
+    Logger.log('DRY RUN — nothing deleted. Showing up to 40 examples; the real backlog may be far larger.');
+    Logger.log('Set DRY_RUN = false to start trashing (in batches, run again / let the daily trigger finish the rest).');
     return;
   }
 
-  var trashed = 0;
-  for (var i = 0; i < threads.length; i += 100) {          // moveThreadsToTrash caps at 100
-    var chunk = threads.slice(i, i + 100);
-    GmailApp.moveThreadsToTrash(chunk);
-    trashed += chunk.length;
+  // Trashed threads leave the category, so re-searching from 0 keeps returning fresh
+  // matches. Loop until nothing's left or we near the 6-minute execution limit.
+  var start = Date.now(), trashed = 0;
+  while (Date.now() - start < RUN_BUDGET_MS) {
+    var threads = GmailApp.search(query, 0, 100);           // moveThreadsToTrash caps at 100
+    if (threads.length === 0) break;
+    GmailApp.moveThreadsToTrash(threads);
+    trashed += threads.length;
+    Utilities.sleep(150);
   }
-  Logger.log('Moved %s thread(s) to Trash — recoverable ~30 days.', trashed);
+  Logger.log('Moved %s thread(s) to Trash this run — recoverable ~30 days.', trashed);
+  Logger.log('If you had thousands, run again (or wait for tomorrow) to clear the rest.');
 }
 
 // ── Job 2: highlight the space hogs ──────────────────────────────────────────────
