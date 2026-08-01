@@ -16,7 +16,7 @@
 // ── Config ───────────────────────────────────────────────────────────────────────
 var DRY_RUN = true;                       // keep true until you've checked the log
 
-var CLEAN_CATEGORIES = ['promotions', 'social', 'updates'];  // drop 'updates' if unsure
+var CLEAN_CATEGORIES = ['promotions', 'social', 'updates', 'forums'];  // trim as you like
 var DELETE_OLDER_THAN_DAYS = 7;           // only trash mail older than this many days
 var RUN_BUDGET_MS = 4.5 * 60 * 1000;      // keep clearing until ~4.5 min, then stop (6-min limit)
 
@@ -145,6 +145,46 @@ function cleanBlockedSenders() {
     Utilities.sleep(150);
   }
   Logger.log('Moved %s thread(s) from blocked senders to Trash — recoverable ~30 days.', trashed);
+}
+
+// ── Standalone: delete by category with progress logging ─────────────────────────
+// Runs ~4.5 min then stops (bigger than that hits Apps Script's 6-min limit). Big
+// backlogs need several runs — just run it again, or let a daily trigger finish.
+var CAT_DRY = true;                          // false = actually trash
+var CATS = ['updates', 'forums', 'promotions', 'social'];
+var CAT_OLDER_THAN_DAYS = 0;                 // 0 = all; e.g. 7 = keep the last week
+
+function deleteByCategory() {
+  var start = Date.now(), grand = 0;
+  for (var c = 0; c < CATS.length; c++) {
+    var cat = CATS[c];
+    var age = CAT_OLDER_THAN_DAYS > 0 ? (' older_than:' + CAT_OLDER_THAN_DAYS + 'd') : '';
+    var query = 'category:' + cat + age + ' ' + KEEP_QUERY;
+
+    if (CAT_DRY) {
+      var s = GmailApp.search(query, 0, 100);
+      Logger.log('[%s] DRY RUN — %s+ match. e.g. "%s"', cat, s.length, s.length ? s[0].getFirstMessageSubject() : '(none)');
+      continue;
+    }
+
+    var trashed = 0;
+    while (true) {
+      if (Date.now() - start > RUN_BUDGET_MS) {
+        Logger.log('[%s] %s trashed, then hit the time budget. %s total this run — RUN AGAIN to continue.',
+                   cat, trashed, grand + trashed);
+        return;
+      }
+      var threads = GmailApp.search(query, 0, 100);
+      if (threads.length === 0) break;
+      GmailApp.moveThreadsToTrash(threads);
+      trashed += threads.length;
+      if (trashed % 500 === 0) Logger.log('[%s] %s trashed…', cat, trashed);   // periodic progress
+      Utilities.sleep(150);
+    }
+    grand += trashed;
+    Logger.log('[%s] done — %s thread(s) to Trash.', cat, trashed);
+  }
+  Logger.log('Finished. %s thread(s) trashed this run. If a category still has mail, run again.', grand);
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────
