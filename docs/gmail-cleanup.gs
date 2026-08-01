@@ -45,6 +45,13 @@ var REPORT_QUERY  = '(category:promotions OR category:social OR category:updates
 var REPORT_SAMPLE = 300;
 var REPORT_TOP_N  = 30;
 
+// Senders to auto-trash daily. Fill from reportTopSenders — full address or bare domain.
+// cleanBlockedSenders() trashes ALL their mail (still respecting the keep-list below).
+var BLOCK_SENDERS = [
+  // 'offers@ajio.com',
+  // 'myntra.com',
+];
+
 // ── Job 1: clean old Social / Promotions / Updates ───────────────────────────────
 function cleanCategories() {
   var cats = CLEAN_CATEGORIES.map(function (c) { return 'category:' + c; }).join(' OR ');
@@ -109,6 +116,35 @@ function reportTopSenders() {
     Logger.log('  %s×   %s', pad_(r.n), r.sender);
   });
   Logger.log('Tip: search "from:<sender>" in Gmail, then use its Unsubscribe link or a filter.');
+}
+
+// ── Job 4: auto-trash mail from blocked senders ──────────────────────────────────
+function cleanBlockedSenders() {
+  if (!BLOCK_SENDERS.length) {
+    Logger.log('BLOCK_SENDERS is empty — run reportTopSenders, then add the worst offenders.');
+    return;
+  }
+  var from = BLOCK_SENDERS.map(function (s) { return 'from:' + s; }).join(' OR ');
+  var query = '(' + from + ') ' + KEEP_QUERY;     // no age filter — blocked means gone
+  Logger.log('Query: %s', query);
+
+  if (DRY_RUN) {
+    GmailApp.search(query, 0, 40).forEach(function (t) {
+      Logger.log('  would trash: %s — %s', t.getMessages()[0].getFrom(), t.getFirstMessageSubject());
+    });
+    Logger.log('DRY RUN — nothing deleted. Set DRY_RUN = false to act.');
+    return;
+  }
+
+  var start = Date.now(), trashed = 0;
+  while (Date.now() - start < RUN_BUDGET_MS) {
+    var threads = GmailApp.search(query, 0, 100);
+    if (threads.length === 0) break;
+    GmailApp.moveThreadsToTrash(threads);
+    trashed += threads.length;
+    Utilities.sleep(150);
+  }
+  Logger.log('Moved %s thread(s) from blocked senders to Trash — recoverable ~30 days.', trashed);
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────
