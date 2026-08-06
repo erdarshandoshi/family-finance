@@ -155,36 +155,38 @@ var CATS = ['updates', 'forums', 'promotions', 'social'];
 var CAT_OLDER_THAN_DAYS = 0;                 // 0 = all; e.g. 7 = keep the last week
 
 function deleteByCategory() {
-  var start = Date.now(), grand = 0;
-  for (var c = 0; c < CATS.length; c++) {
-    var cat = CATS[c];
-    var age = CAT_OLDER_THAN_DAYS > 0 ? (' older_than:' + CAT_OLDER_THAN_DAYS + 'd') : '';
-    var query = 'category:' + cat + age + ' ' + KEEP_QUERY;
+  var start = Date.now();
+  var age = CAT_OLDER_THAN_DAYS > 0 ? (' older_than:' + CAT_OLDER_THAN_DAYS + 'd') : '';
+  var totals = {};
+  CATS.forEach(function (c) { totals[c] = 0; });
 
-    if (CAT_DRY) {
-      var s = GmailApp.search(query, 0, 100);
+  if (CAT_DRY) {
+    CATS.forEach(function (cat) {
+      var s = GmailApp.search('category:' + cat + age + ' ' + KEEP_QUERY, 0, 100);
       Logger.log('[%s] DRY RUN — %s+ match. e.g. "%s"', cat, s.length, s.length ? s[0].getFirstMessageSubject() : '(none)');
-      continue;
-    }
+    });
+    return;
+  }
 
-    var trashed = 0;
-    while (true) {
-      if (Date.now() - start > RUN_BUDGET_MS) {
-        Logger.log('[%s] %s trashed, then hit the time budget. %s total this run — RUN AGAIN to continue.',
-                   cat, trashed, grand + trashed);
-        return;
-      }
-      var threads = GmailApp.search(query, 0, 100);
-      if (threads.length === 0) break;
+  // Round-robin: one batch from EACH category per pass, so a huge Updates backlog can't
+  // starve Promotions/Social. A category drops out once it returns nothing.
+  var active = CATS.slice();
+  while (active.length && Date.now() - start < RUN_BUDGET_MS) {
+    var next = [];
+    for (var i = 0; i < active.length && Date.now() - start < RUN_BUDGET_MS; i++) {
+      var cat = active[i];
+      var threads = GmailApp.search('category:' + cat + age + ' ' + KEEP_QUERY, 0, 100);
+      if (threads.length === 0) continue;                  // cleared — don't re-add
       GmailApp.moveThreadsToTrash(threads);
-      trashed += threads.length;
-      if (trashed % 500 === 0) Logger.log('[%s] %s trashed…', cat, trashed);   // periodic progress
+      totals[cat] += threads.length;
+      next.push(cat);
       Utilities.sleep(150);
     }
-    grand += trashed;
-    Logger.log('[%s] done — %s thread(s) to Trash.', cat, trashed);
+    active = next;
   }
-  Logger.log('Finished. %s thread(s) trashed this run. If a category still has mail, run again.', grand);
+
+  CATS.forEach(function (c) { Logger.log('[%s] %s thread(s) trashed this run.', c, totals[c]); });
+  Logger.log(active.length ? 'Time budget hit — run again to finish the rest.' : 'All categories cleared 🎉');
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────
