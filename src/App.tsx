@@ -24,6 +24,7 @@ import PasswordVaultPage from './pages/PasswordVaultPage';
 import FolioRegistryPage from './pages/FolioRegistryPage';
 import ReviewInboxPage from './pages/ReviewInboxPage';
 import NotificationsPage from './pages/NotificationsPage';
+import ParsersPage from './pages/ParsersPage';
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string;
 
@@ -120,6 +121,7 @@ function AppRoutes() {
           <Route path="mf" element={<MFPage />} />
           <Route path="inbox" element={<ReviewInboxPage />} />
           <Route path="folios" element={<FolioRegistryPage />} />
+          <Route path="parsers" element={<ParsersPage />} />
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="ppf" element={<PPFPage />} />
           <Route path="pf" element={<PFPage />} />

@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Landmark, TrendingUp, BarChart3,
   PiggyBank, Briefcase, IndianRupee, X, BarChart2,
   Shield, Package, Users, Building2, BookHeart, KeyRound,
-  Inbox, FolderKey, Bell,
+  Inbox, FolderKey, Bell, Braces,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 
@@ -15,6 +15,7 @@ const nav = [
   { to: '/mf',             label: 'Mutual Funds & SIP',icon: BarChart3 },
   { to: '/inbox',          label: 'Review Inbox',      icon: Inbox },
   { to: '/folios',         label: 'Folio Registry',    icon: FolderKey },
+  { to: '/parsers',        label: 'Supported Parsers', icon: Braces },
   { to: '/ppf',            label: 'PPF',               icon: PiggyBank },
   { to: '/pf',             label: 'Provident Fund',    icon: Briefcase },
   { to: '/insurance',      label: 'Insurance',         icon: Shield },

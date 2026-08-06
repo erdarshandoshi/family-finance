@@ -21,6 +21,8 @@ const INGEST_SECRET = 'PASTE-THE-SAME-SECRET-AS-VERCEL';
 //   "SIP Confirmation"         → Invesco/KFintech, where the figures are in the PDF only
 //   "New Purchase"             → KFintech request + processed mails
 //   "units allotted"           → other AMCs' allotment mails
+//   "SIP transaction"          → Quant/KFin "Your SIP transaction … is processed"
+//                                (subject carries no other matchable phrase)
 //   "your NPS account"          → NPS statements (KFin "…of your NPS account",
 //                                Protean "…for your NPS account"); figures in the PDF
 // The trailing -subject:(...) drops cancellations/rejections, which otherwise match
@@ -28,7 +30,7 @@ const INGEST_SECRET = 'PASTE-THE-SAME-SECRET-AS-VERCEL';
 // Test any change in the Gmail search box first.
 const SEARCH_QUERY  =
   'newer_than:10d ' +
-  'subject:("Systematic Investment" OR "transaction confirmation" OR "SIP Confirmation" OR "New Purchase" OR "units allotted" OR "your NPS account") ' +
+  'subject:("Systematic Investment" OR "transaction confirmation" OR "SIP Confirmation" OR "SIP transaction" OR "New Purchase" OR "units allotted" OR "your NPS account") ' +
   '-subject:(cancellation OR cancelled OR canceled OR ceased OR discontinued OR rejected OR failed OR reversal OR refund)';
 
 const PROCESSED_LABEL = 'FF-SIP-Sent';
